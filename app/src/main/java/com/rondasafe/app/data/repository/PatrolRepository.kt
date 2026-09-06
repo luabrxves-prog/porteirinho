@@ -34,6 +34,44 @@ object PatrolRepository {
             }
         }.decodeList()
 
+    suspend fun listAssignments(windowId: String, includeArchived: Boolean = true): List<PatrolScheduleAssignmentDto> =
+        client.from("patrol_schedule_assignments").select {
+            filter {
+                eq("schedule_window_id", windowId)
+                if (!includeArchived) eq("active", true)
+            }
+        }.decodeList()
+
+    suspend fun setAssignments(windowId: String, guardIds: Set<String>) {
+        val adminId = currentAdminId()
+        val now = Instant.now().toString()
+        val existing = listAssignments(windowId, includeArchived = true)
+        val byGuard = existing.associateBy { it.guardId }
+
+        existing.filter { it.active && it.guardId !in guardIds }.forEach { assignment ->
+            client.from("patrol_schedule_assignments").update(
+                ArchiveDto(archivedAt = now, archivedBy = adminId)
+            ) { filter { eq("id", assignment.id) } }
+        }
+
+        guardIds.forEach { guardId ->
+            val assignment = byGuard[guardId]
+            if (assignment == null) {
+                client.from("patrol_schedule_assignments").insert(
+                    CreatePatrolScheduleAssignmentDto(
+                        scheduleWindowId = windowId,
+                        guardId = guardId,
+                        createdBy = adminId,
+                    )
+                )
+            } else if (!assignment.active) {
+                client.from("patrol_schedule_assignments").update(RestoreDto()) {
+                    filter { eq("id", assignment.id) }
+                }
+            }
+        }
+    }
+
     suspend fun listCheckpointOptions(buildingId: String): List<PatrolCheckpointOption> {
         val blocks = AdminRepository.listBlocks(buildingId)
         val options = mutableListOf<PatrolCheckpointOption>()
