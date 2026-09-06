@@ -14,6 +14,7 @@ fun AdminDashboardScreenV3(
     onOpenLocations: () -> Unit,
     onOpenGuards: () -> Unit,
     onOpenPatrols: () -> Unit,
+    onOpenDeviceProvision: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -30,6 +31,11 @@ fun AdminDashboardScreenV3(
                 "Programação de Rondas",
                 "Crie rondas com dias, horários, tolerância e pontos obrigatórios.",
                 onOpenPatrols,
+            )
+            DashboardCardV3(
+                "Configurar aparelho da portaria",
+                "Pareie este celular com um prédio para uso pelos porteiros.",
+                onOpenDeviceProvision,
             )
             Spacer(Modifier.weight(1f))
             OutlinedButton(
