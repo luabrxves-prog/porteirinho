@@ -20,6 +20,7 @@ enum class AdminScreen {
     FLOORS,
     CHECKPOINTS,
     CHECKPOINT_DETAIL,
+    GUARDS,
 }
 
 @Composable
@@ -34,8 +35,9 @@ fun RondaSafeApp() {
             onLoginSuccess = { screen = AdminScreen.DASHBOARD },
         )
 
-        AdminScreen.DASHBOARD -> AdminDashboardScreen(
+        AdminScreen.DASHBOARD -> AdminDashboardScreenV2(
             onOpenLocations = { screen = AdminScreen.BUILDINGS },
+            onOpenGuards = { screen = AdminScreen.GUARDS },
             onLogout = {
                 screen = AdminScreen.LOGIN
                 selection = AdminSelection()
@@ -80,6 +82,10 @@ fun RondaSafeApp() {
         AdminScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
             checkpoint = requireNotNull(selection.checkpoint),
             onBack = { screen = AdminScreen.CHECKPOINTS },
+        )
+
+        AdminScreen.GUARDS -> GuardsScreen(
+            onBack = { screen = AdminScreen.DASHBOARD },
         )
     }
 }
