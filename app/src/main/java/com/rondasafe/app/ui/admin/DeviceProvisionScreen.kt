@@ -1,18 +1,39 @@
 package com.rondasafe.app.ui.admin
 
 import android.os.Build
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.BuildingDto
 import com.rondasafe.app.data.model.DeviceProvisionRequest
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.PortariaRepository
+import com.rondasafe.app.ui.components.RondaSafeColors
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -20,43 +41,82 @@ import java.util.UUID
 fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var buildings by remember { mutableStateOf<List<BuildingDto>>(emptyList()) }
-    var selected by remember { mutableStateOf<BuildingDto?>(null) }
-    var name by remember { mutableStateOf("Celular da Portaria") }
-    var installationId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var condominium by remember { mutableStateOf<BuildingDto?>(null) }
+    var name by remember { mutableStateOf("Portaria Principal") }
+    val installationId = remember { UUID.randomUUID().toString() }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var initialLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        runCatching { AdminRepository.listBuildings() }
-            .onSuccess { buildings = it }
-            .onFailure { error = it.message }
+        runCatching { AdminRepository.condominium() }
+            .onSuccess { condominium = it }
+            .onFailure { error = it.message ?: "Não foi possível carregar o condomínio." }
+        initialLoading = false
     }
 
-    Scaffold(topBar = { AppTopBar("Configurar aparelho", onBack) }) { padding ->
-        Column(Modifier.padding(padding).padding(20.dp).fillMaxSize()) {
-            Text("Transformar este aparelho em dispositivo de portaria", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(8.dp))
-            Text("Faça isso apenas no celular compartilhado da portaria.")
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(name, { name = it }, label = { Text("Nome do aparelho") }, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(16.dp))
-            Text("Prédio", style = MaterialTheme.typography.titleMedium)
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(buildings, key = { it.id }) { building ->
-                    Card(onClick = { selected = building }, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(16.dp)) {
-                            RadioButton(selected = selected?.id == building.id, onClick = { selected = building })
-                            Spacer(Modifier.width(8.dp))
-                            Text(building.name)
-                        }
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { AppTopBar("Configurar aparelho", onBack) },
+    ) { padding ->
+        Column(
+            modifier = Modifier.padding(padding).padding(horizontal = 20.dp, vertical = 18.dp).fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                "Usar este celular na portaria",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = RondaSafeColors.Navy,
+            )
+            Text(
+                "A configuração é feita uma vez. Depois, os porteiros poderão entrar com nome e PIN neste aparelho.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = RondaSafeColors.Muted,
+            )
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = RondaSafeColors.BlueSoft,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Condomínio", style = MaterialTheme.typography.labelMedium, color = RondaSafeColors.Muted)
+                    Spacer(Modifier.height(4.dp))
+                    if (initialLoading) {
+                        CircularProgressIndicator()
+                    } else {
+                        Text(
+                            condominium?.name ?: "Não configurado",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = RondaSafeColors.Navy,
+                        )
+                        Text(
+                            "Vinculado automaticamente",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RondaSafeColors.Green,
+                        )
                     }
                 }
             }
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nome deste aparelho") },
+                supportingText = { Text("Ex.: Portaria Principal") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+            Spacer(Modifier.weight(1f))
+
             Button(
                 onClick = {
-                    val building = selected ?: return@Button
+                    val building = condominium ?: return@Button
                     scope.launch {
                         loading = true
                         error = null
@@ -65,21 +125,25 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                                 DeviceProvisionRequest(
                                     installationId = installationId,
                                     buildingId = building.id,
-                                    name = name,
-                                    model = Build.MODEL ?: "",
-                                    androidVersion = Build.VERSION.RELEASE ?: "",
-                                    appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "",
+                                    name = name.trim(),
+                                    model = Build.MODEL.orEmpty(),
+                                    androidVersion = Build.VERSION.RELEASE.orEmpty(),
+                                    appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
                                 )
                             )
                             PortariaRepository.persistDeviceCredential(context)
                         }.onSuccess { onProvisioned() }
-                            .onFailure { error = it.message }
+                            .onFailure { error = it.message ?: "Não foi possível configurar o aparelho." }
                         loading = false
                     }
                 },
-                enabled = selected != null && name.isNotBlank() && !loading,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (loading) "Configurando..." else "Configurar este aparelho") }
+                enabled = condominium != null && name.isNotBlank() && !loading,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(if (loading) "Configurando..." else "Configurar como portaria", fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
