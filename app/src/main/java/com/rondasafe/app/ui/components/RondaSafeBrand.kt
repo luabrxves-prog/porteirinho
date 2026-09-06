@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +39,7 @@ fun RondaSafeMark(
     shieldColor: Color = RondaSafeColors.Blue,
     buildingColor: Color = Color.White,
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.size(112.dp)) {
         val w = size.width
         val h = size.height
         val stroke = size.minDimension * 0.055f
