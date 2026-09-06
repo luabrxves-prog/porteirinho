@@ -1,9 +1,8 @@
 package com.rondasafe.app.data.repository
 
 import com.rondasafe.app.data.remote.SupabaseProvider
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
-import io.github.jan.supabase.auth.signInWith
-import io.github.jan.supabase.auth.signOut
 
 object AuthRepository {
     private val auth get() = SupabaseProvider.client.auth
