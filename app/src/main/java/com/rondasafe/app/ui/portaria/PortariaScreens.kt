@@ -9,20 +9,51 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -32,9 +63,14 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import com.rondasafe.app.data.model.*
+import com.rondasafe.app.data.model.AvailablePatrolDto
+import com.rondasafe.app.data.model.FinishPatrolDto
+import com.rondasafe.app.data.model.PatrolRunDto
+import com.rondasafe.app.data.model.PortariaGuardDto
+import com.rondasafe.app.data.model.ShiftDto
 import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.admin.AppTopBar
+import com.rondasafe.app.ui.components.RondaSafeColors
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
@@ -45,46 +81,79 @@ fun GuardSelectionScreen(onGuardSelected: (PortariaGuardDto) -> Unit, onBack: ()
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
-    fun reload() {
-        scope.launch {
-            loading = true
-            runCatching { PortariaRepository.listGuards() }
-                .onSuccess { guards = it }
-                .onFailure { error = it.message }
-            loading = false
-        }
+    LaunchedEffect(Unit) {
+        loading = true
+        runCatching { PortariaRepository.listGuards() }
+            .onSuccess { guards = it }
+            .onFailure { error = it.message }
+        loading = false
     }
-    LaunchedEffect(Unit) { reload() }
 
-    Scaffold(topBar = { AppTopBar("Portaria", onBack) }) { padding ->
-        Column(Modifier.padding(padding).padding(20.dp).fillMaxSize()) {
-            OfflineSyncStatusBanner()
-            Spacer(Modifier.height(16.dp))
-            Text("Quem está iniciando o turno?", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(16.dp))
-            if (loading) CircularProgressIndicator()
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(guards, key = { it.id }) { guard ->
-                    Card(onClick = { onGuardSelected(guard) }, modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            Modifier.padding(16.dp).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (!guard.photoUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = guard.photoUrl,
-                                    contentDescription = "Foto de ${guard.name}",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(58.dp).clip(CircleShape),
-                                )
-                                Spacer(Modifier.width(14.dp))
-                            }
-                            Column {
-                                Text(guard.name, style = MaterialTheme.typography.titleMedium)
-                                Text(if (guard.pinState == "TEMPORARY") "Primeiro acesso" else "PIN pessoal")
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { AppTopBar("Portaria", onBack) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    color = RondaSafeColors.Navy,
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("Selecionar porteiro", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Escolha seu perfil para continuar.", color = Color.White.copy(alpha = 0.72f))
+                    }
+                }
+            }
+            item { OfflineSyncStatusBanner() }
+            if (loading) item { CircularProgressIndicator() }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            items(guards, key = { it.id }) { guard ->
+                Card(
+                    onClick = { onGuardSelected(guard) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (!guard.photoUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = guard.photoUrl,
+                                contentDescription = "Foto de ${guard.name}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(62.dp).clip(RoundedCornerShape(16.dp)),
+                            )
+                        } else {
+                            Surface(
+                                modifier = Modifier.size(62.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = RondaSafeColors.BlueSoft,
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(guard.name.take(1).uppercase(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                                }
                             }
                         }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(guard.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (guard.pinState == "TEMPORARY") "Primeiro acesso" else "PIN pessoal",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RondaSafeColors.Muted,
+                            )
+                        }
+                        Text("›", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Blue)
                     }
                 }
             }
@@ -99,55 +168,150 @@ fun GuardPinScreen(guard: PortariaGuardDto, onSuccess: (Boolean) -> Unit, onBack
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
 
-    Scaffold(topBar = { AppTopBar(guard.name, onBack) }) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Digite seu PIN", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(20.dp))
-            OutlinedTextField(
-                value = pin,
-                onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) pin = it },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                singleLine = true,
-                label = { Text("PIN de 6 dígitos") },
-            )
-            error?.let { Spacer(Modifier.height(10.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = {
-                    scope.launch {
-                        loading = true; error = null
-                        runCatching { PortariaRepository.loginGuard(guard.id, pin) }
-                            .onSuccess { onSuccess(it.mustChangePin) }
-                            .onFailure { error = it.message ?: "PIN inválido." }
-                        loading = false
-                    }
-                },
-                enabled = pin.length == 6 && !loading,
-            ) { Text(if (loading) "Entrando..." else "Entrar") }
+    fun submit() {
+        if (pin.length != 6 || loading) return
+        scope.launch {
+            loading = true
+            error = null
+            runCatching { PortariaRepository.loginGuard(guard.id, pin) }
+                .onSuccess { onSuccess(it.mustChangePin) }
+                .onFailure {
+                    error = it.message ?: "PIN inválido."
+                    pin = ""
+                }
+            loading = false
         }
+    }
+
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { AppTopBar("Acesso do porteiro", onBack) },
+    ) { padding ->
+        Column(
+            Modifier.padding(padding).padding(horizontal = 22.dp, vertical = 18.dp).fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Surface(modifier = Modifier.size(64.dp), shape = CircleShape, color = RondaSafeColors.BlueSoft) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(guard.name.take(1).uppercase(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Digite seu PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+            Text("Olá, ${guard.name}!", color = RondaSafeColors.Muted)
+            Spacer(Modifier.height(22.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(6) { index ->
+                    Surface(
+                        modifier = Modifier.size(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, RondaSafeColors.Border),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(if (index < pin.length) "•" else "", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Navy)
+                        }
+                    }
+                }
+            }
+
+            error?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(Modifier.height(20.dp))
+            NumericKeypad(
+                onDigit = { digit -> if (pin.length < 6 && !loading) pin += digit },
+                onBackspace = { if (pin.isNotEmpty() && !loading) pin = pin.dropLast(1) },
+            )
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = ::submit,
+                enabled = pin.length == 6 && !loading,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(if (loading) "Entrando..." else "Entrar", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NumericKeypad(onDigit: (String) -> Unit, onBackspace: () -> Unit) {
+    val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { digit -> KeypadButton(digit) { onDigit(digit) } }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.width(76.dp))
+            KeypadButton("0") { onDigit("0") }
+            KeypadButton("⌫", onBackspace)
+        }
+    }
+}
+
+@Composable
+private fun KeypadButton(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.size(width = 76.dp, height = 54.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = RondaSafeColors.Navy),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 1.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 fun ChangeGuardPinScreen(onChanged: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var pin by remember { mutableStateOf("") }
+    var first by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
+    var stage by remember { mutableIntStateOf(1) }
     var error by remember { mutableStateOf<String?>(null) }
-    Scaffold(topBar = { AppTopBar("Criar PIN pessoal") }) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp)) {
-            Text("Troque o PIN temporário por um PIN pessoal de 6 dígitos.")
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(pin, { if (it.length <= 6 && it.all(Char::isDigit)) pin = it }, label = { Text("Novo PIN") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(confirm, { if (it.length <= 6 && it.all(Char::isDigit)) confirm = it }, label = { Text("Confirmar PIN") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Criar PIN pessoal") }) { padding ->
+        Column(Modifier.padding(padding).padding(22.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(if (stage == 1) "Escolha um PIN de 6 dígitos" else "Digite o PIN novamente", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(20.dp))
-            Button(onClick = {
-                if (pin != confirm) { error = "Os PINs não conferem."; return@Button }
-                scope.launch { runCatching { PortariaRepository.changePin(pin) }.onSuccess { onChanged() }.onFailure { error = it.message } }
-            }, enabled = pin.length == 6 && confirm.length == 6) { Text("Salvar PIN") }
+            val current = if (stage == 1) first else confirm
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(6) { index -> Text(if (index < current.length) "●" else "○", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Navy) }
+            }
+            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.height(24.dp))
+            NumericKeypad(
+                onDigit = { digit ->
+                    if (stage == 1 && first.length < 6) first += digit
+                    if (stage == 2 && confirm.length < 6) confirm += digit
+                },
+                onBackspace = {
+                    if (stage == 1 && first.isNotEmpty()) first = first.dropLast(1)
+                    if (stage == 2 && confirm.isNotEmpty()) confirm = confirm.dropLast(1)
+                },
+            )
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = {
+                    if (stage == 1) {
+                        stage = 2
+                    } else if (first != confirm) {
+                        error = "Os PINs não conferem."
+                        confirm = ""
+                    } else {
+                        scope.launch { runCatching { PortariaRepository.changePin(first) }.onSuccess { onChanged() }.onFailure { error = it.message } }
+                    }
+                },
+                enabled = current.length == 6,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (stage == 1) "Continuar" else "Salvar PIN") }
         }
     }
 }
@@ -156,13 +320,20 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
 fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
-    Scaffold(topBar = { AppTopBar("Meu turno", onBack) }) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+
+    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Meu turno", onBack) }) { padding ->
+        Column(Modifier.padding(padding).padding(22.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             OfflineSyncStatusBanner()
             Spacer(Modifier.weight(1f))
-            Text(PortariaRepository.guardSession?.guardName ?: "Porteiro", style = MaterialTheme.typography.headlineSmall)
+            Text("Olá, ${PortariaRepository.guardSession?.guardName ?: "Porteiro"}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+            Spacer(Modifier.height(6.dp))
+            Text("Quando estiver pronto, inicie seu turno.", color = RondaSafeColors.Muted)
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { scope.launch { runCatching { PortariaRepository.startShift() }.onSuccess(onShiftStarted).onFailure { error = it.message } } }) { Text("Iniciar turno") }
+            Button(
+                onClick = { scope.launch { runCatching { PortariaRepository.startShift() }.onSuccess(onShiftStarted).onFailure { error = it.message } } },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("Iniciar turno", fontWeight = FontWeight.Bold) }
             error?.let { Spacer(Modifier.height(12.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.weight(1f))
         }
@@ -176,30 +347,73 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
 
-    fun refresh() { scope.launch { loading = true; runCatching { PortariaRepository.availablePatrols() }.onSuccess { patrols = it }.onFailure { error = it.message }; loading = false } }
+    fun refresh() {
+        scope.launch {
+            loading = true
+            runCatching { PortariaRepository.availablePatrols() }
+                .onSuccess { patrols = it }
+                .onFailure { error = it.message }
+            loading = false
+        }
+    }
     LaunchedEffect(Unit) { refresh() }
 
-    Scaffold(topBar = { AppTopBar("Rondas disponíveis") }) { padding ->
-        Column(Modifier.padding(padding).padding(20.dp).fillMaxSize()) {
-            OfflineSyncStatusBanner()
-            Spacer(Modifier.height(12.dp))
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (!loading && patrols.isEmpty()) Text("Nenhuma ronda disponível neste horário.")
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
-                items(patrols, key = { it.scheduleWindowId }) { patrol ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(patrol.patrolName, style = MaterialTheme.typography.titleLarge)
-                            Text("${patrol.requiredPoints} pontos obrigatórios")
-                            if (patrol.isLate) Text("Ronda atrasada", color = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.height(10.dp))
-                            Button(onClick = { scope.launch { runCatching { PortariaRepository.startPatrol(shift.shiftId, patrol) }.onSuccess { onStart(patrol, it) }.onFailure { error = it.message } } }) { Text("Iniciar ronda") }
-                        }
+    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Rondas disponíveis") }) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { OfflineSyncStatusBanner() }
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (!loading && patrols.isEmpty()) {
+                item {
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = RondaSafeColors.BlueSoft) {
+                        Text("Nenhuma ronda disponível neste horário.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
                     }
                 }
             }
-            OutlinedButton(onClick = { scope.launch { runCatching { PortariaRepository.endShift(shift.shiftId) }.onSuccess { onEndShift() }.onFailure { error = it.message } } }, modifier = Modifier.fillMaxWidth()) { Text("Encerrar turno") }
+            items(patrols, key = { it.scheduleWindowId }) { patrol ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(patrol.patrolName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("${patrol.requiredPoints} pontos de controle", color = RondaSafeColors.Muted)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (patrol.isLate) Color(0xFFFFECEC) else RondaSafeColors.GreenSoft,
+                            ) {
+                                Text(
+                                    if (patrol.isLate) "Atrasada" else "Disponível",
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (patrol.isLate) RondaSafeColors.Danger else RondaSafeColors.Green,
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = { scope.launch { runCatching { PortariaRepository.startPatrol(shift.shiftId, patrol) }.onSuccess { onStart(patrol, it) }.onFailure { error = it.message } } },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text("Iniciar ronda", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = { scope.launch { runCatching { PortariaRepository.endShift(shift.shiftId) }.onSuccess { onEndShift() }.onFailure { error = it.message } } },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Encerrar turno") }
+                Spacer(Modifier.height(20.dp))
+            }
         }
     }
 }
@@ -208,39 +422,60 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
 fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (FinishPatrolDto) -> Unit) {
     val scope = rememberCoroutineScope()
     var visited by remember { mutableIntStateOf(0) }
-    var message by remember { mutableStateOf("Aponte a câmera para um QR Code") }
+    var message by remember { mutableStateOf("Aproxime o QR Code do ponto") }
     var error by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
+    val progress = if (run.requiredPoints <= 0) 0f else visited.toFloat() / run.requiredPoints.toFloat()
 
-    Scaffold(topBar = { AppTopBar(patrolName) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            OfflineSyncStatusBanner(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            Text("$visited/${run.requiredPoints} pontos visitados", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
-            QrCameraScanner(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                enabled = !processing,
-                onQr = { qr ->
-                    processing = true
-                    scope.launch {
-                        runCatching { PortariaRepository.scan(run.runId, qr, SystemClock.elapsedRealtime()) }
-                            .onSuccess {
-                                visited = it.visitedPoints
-                                message = when (it.scanResult) {
-                                    "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado"
-                                    "DUPLICATE" -> "QR já lido nesta ronda"
-                                    "REVOKED_QR" -> "QR revogado"
-                                    "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
-                                    else -> "QR desconhecido"
+    Scaffold(containerColor = Color(0xFF081018), topBar = { AppTopBar(patrolName) }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().background(Color(0xFF081018))) {
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+                Text("Ponto ${minOf(visited + 1, run.requiredPoints)} de ${run.requiredPoints}", color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = RondaSafeColors.Blue, trackColor = Color.White.copy(alpha = 0.12f))
+                Spacer(Modifier.height(12.dp))
+                Text(message, color = Color.White.copy(alpha = 0.82f))
+            }
+
+            Box(
+                Modifier
+                    .padding(horizontal = 18.dp)
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(2.dp, RondaSafeColors.Blue, RoundedCornerShape(24.dp)),
+            ) {
+                QrCameraScanner(
+                    modifier = Modifier.fillMaxSize(),
+                    enabled = !processing,
+                    onQr = { qr ->
+                        processing = true
+                        scope.launch {
+                            runCatching { PortariaRepository.scan(run.runId, qr, SystemClock.elapsedRealtime()) }
+                                .onSuccess {
+                                    visited = it.visitedPoints
+                                    message = when (it.scanResult) {
+                                        "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado"
+                                        "DUPLICATE" -> "Este ponto já foi lido"
+                                        "REVOKED_QR" -> "QR Code revogado"
+                                        "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
+                                        else -> "QR Code não reconhecido"
+                                    }
                                 }
-                            }
-                            .onFailure { error = it.message }
-                        processing = false
-                    }
-                },
-            )
-            Text(message, modifier = Modifier.padding(horizontal = 16.dp))
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
-            Button(onClick = { scope.launch { runCatching { PortariaRepository.finishPatrol(run.runId) }.onSuccess(onFinished).onFailure { error = it.message } } }, modifier = Modifier.padding(16.dp).fillMaxWidth()) { Text("Finalizar ronda") }
+                                .onFailure { error = it.message }
+                            processing = false
+                        }
+                    },
+                )
+            }
+
+            error?.let { Text(it, color = Color(0xFFFF8C8C), modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
+            OfflineSyncStatusBanner(Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+            Button(
+                onClick = { scope.launch { runCatching { PortariaRepository.finishPatrol(run.runId) }.onSuccess(onFinished).onFailure { error = it.message } } },
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("Finalizar ronda", fontWeight = FontWeight.Bold) }
         }
     }
 }
@@ -254,7 +489,7 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
     LaunchedEffect(Unit) { launcher.launch(Manifest.permission.CAMERA) }
 
     if (!permission) {
-        Box(modifier, contentAlignment = Alignment.Center) { Text("Permita o uso da câmera para ler os QR Codes.") }
+        Box(modifier, contentAlignment = Alignment.Center) { Text("Permita o uso da câmera para ler os QR Codes.", color = Color.White) }
         return
     }
 
@@ -291,14 +526,23 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
 
 @Composable
 fun PatrolFinishedScreen(result: FinishPatrolDto, onDone: () -> Unit) {
-    Column(Modifier.padding(24.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        Modifier.fillMaxSize().background(RondaSafeColors.Background).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         OfflineSyncStatusBanner()
         Spacer(Modifier.weight(1f))
-        Text(if (result.status == "COMPLETED") "Ronda concluída" else "Ronda incompleta", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(12.dp))
-        Text("${result.visitedPoints}/${result.totalPoints} pontos visitados")
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onDone) { Text("Voltar às rondas") }
+        Surface(modifier = Modifier.size(82.dp), shape = CircleShape, color = if (result.status == "COMPLETED") RondaSafeColors.GreenSoft else Color(0xFFFFECEC)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(if (result.status == "COMPLETED") "✓" else "!", style = MaterialTheme.typography.headlineLarge, color = if (result.status == "COMPLETED") RondaSafeColors.Green else RondaSafeColors.Danger)
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Text(if (result.status == "COMPLETED") "Ronda concluída" else "Ronda incompleta", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+        Spacer(Modifier.height(8.dp))
+        Text("${result.visitedPoints}/${result.totalPoints} pontos visitados", color = RondaSafeColors.Muted)
+        Spacer(Modifier.height(26.dp))
+        Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Concluir", fontWeight = FontWeight.Bold) }
         Spacer(Modifier.weight(1f))
     }
 }
