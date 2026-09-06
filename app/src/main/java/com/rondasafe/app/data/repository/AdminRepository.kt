@@ -111,6 +111,30 @@ object AdminRepository {
     suspend fun replaceQr(checkpointId: String): QrFunctionResponse =
         invokeQr("replace", checkpointId)
 
+    suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
+        client.from("alerts").select {
+            filter {
+                if (!includeResolved) isExact("resolved_at", null)
+            }
+        }.decodeList<AlertDto>().sortedByDescending { it.createdAt }
+
+    suspend fun markAlertRead(alertId: String) {
+        client.from("alerts").update(AlertReadDto(readAt = Instant.now().toString())) {
+            filter { eq("id", alertId) }
+        }
+    }
+
+    suspend fun resolveAlert(alertId: String) {
+        client.from("alerts").update(
+            AlertResolveDto(
+                resolvedAt = Instant.now().toString(),
+                resolvedBy = currentAdminId(),
+            )
+        ) {
+            filter { eq("id", alertId) }
+        }
+    }
+
     private suspend fun invokeQr(action: String, checkpointId: String): QrFunctionResponse {
         val response = client.functions.invoke(
             function = "admin-qr",
