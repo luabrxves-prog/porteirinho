@@ -10,7 +10,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.time.DayOfWeek
-import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
@@ -21,6 +20,12 @@ object OfflineOperationalCache {
     private const val CACHE_KEY = "portaria_operational_cache_v1"
     private val json = Json { ignoreUnknownKeys = true }
 
+    data class QrMatch(
+        val tokenHash: String,
+        val checkpointId: String,
+        val checkpointName: String,
+    )
+
     fun save(context: Context, cache: PortariaCacheResponse) {
         OfflineCredentialVault.put(context, CACHE_KEY, json.encodeToString(cache))
     }
@@ -29,6 +34,8 @@ object OfflineOperationalCache {
         val raw = OfflineCredentialVault.get(context, CACHE_KEY) ?: return null
         return runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }.getOrNull()
     }
+
+    fun hasCache(context: Context): Boolean = load(context) != null
 
     fun guards(context: Context): List<PortariaGuardDto> =
         load(context)?.guards.orEmpty().map {
@@ -79,7 +86,7 @@ object OfflineOperationalCache {
             val scheduled = LocalDateTime.of(scheduledDate, start).atZone(zone)
             val availableUntilDate = if (end > start || localNow.isBefore(start)) scheduledDate else scheduledDate.plusDays(1)
             val availableUntil = LocalDateTime.of(availableUntilDate, end).atZone(zone)
-            val required = cache.patrolCheckpoints.count { it.patrolTemplateId == patrol.id && it.required }
+            val required = requiredCheckpointIds(context, patrol.id).size
 
             AvailablePatrolDto(
                 patrolTemplateId = patrol.id,
@@ -93,20 +100,28 @@ object OfflineOperationalCache {
         }.sortedBy { it.scheduledFor }
     }
 
-    fun checkpointForQr(context: Context, rawQr: String): Pair<String, String>? {
+    fun requiredCheckpointIds(context: Context, patrolTemplateId: String): Set<String> =
+        load(context)?.patrolCheckpoints.orEmpty()
+            .asSequence()
+            .filter { it.patrolTemplateId == patrolTemplateId && it.required }
+            .map { it.checkpointId }
+            .toSet()
+
+    fun qrMatch(context: Context, rawQr: String): QrMatch? {
         val cache = load(context) ?: return null
-        val hash = sha256Hex(rawQr)
+        val hash = tokenHash(rawQr)
         val qr = cache.qrTokens.firstOrNull { constantTimeEquals(it.tokenHash, hash) } ?: return null
         val checkpoint = cache.checkpoints.firstOrNull { it.id == qr.checkpointId } ?: return null
-        return checkpoint.id to checkpoint.name
+        return QrMatch(hash, checkpoint.id, checkpoint.name)
     }
+
+    fun tokenHash(rawQr: String): String = sha256Hex(rawQr)
 
     fun clear(context: Context) {
         OfflineCredentialVault.remove(context, CACHE_KEY)
     }
 
-    private fun parseTime(value: String): LocalTime =
-        LocalTime.parse(value.take(8))
+    private fun parseTime(value: String): LocalTime = LocalTime.parse(value.take(8))
 
     private fun pbkdf2Hex(pin: String, saltHex: String, iterations: Int): String {
         val salt = hexToBytes(saltHex)
