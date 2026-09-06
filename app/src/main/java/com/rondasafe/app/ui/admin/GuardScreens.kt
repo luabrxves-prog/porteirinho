@@ -1,15 +1,24 @@
 package com.rondasafe.app.ui.admin
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.rondasafe.app.data.model.GuardDto
 import com.rondasafe.app.data.repository.GuardRepository
+import io.ktor.http.ContentType
 import kotlinx.coroutines.launch
 
 @Composable
@@ -21,6 +30,7 @@ fun GuardsScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showCreate by remember { mutableStateOf(false) }
+    var photoGuard by remember { mutableStateOf<GuardDto?>(null) }
     var tempPin by remember { mutableStateOf<String?>(null) }
     var tempPinGuardName by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf<GuardDto?>(null) }
@@ -60,19 +70,33 @@ fun GuardsScreen(onBack: () -> Unit) {
                 items(guards, key = { it.id }) { guard ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
-                            Text(guard.name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                when {
-                                    !guard.active -> "Arquivado"
-                                    guard.pinState == "TEMPORARY" -> "PIN temporário • troca pendente"
-                                    guard.pinState == "PERSONAL" -> "PIN pessoal configurado"
-                                    else -> guard.pinState
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!guard.photoUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = guard.photoUrl,
+                                        contentDescription = "Foto de ${guard.name}",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(56.dp).clip(CircleShape),
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(guard.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        when {
+                                            !guard.active -> "Arquivado"
+                                            guard.pinState == "TEMPORARY" -> "PIN temporário • troca pendente"
+                                            guard.pinState == "PERSONAL" -> "PIN pessoal configurado"
+                                            else -> guard.pinState
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
                             Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (guard.active) {
+                                    TextButton(onClick = { photoGuard = guard }) { Text(if (guard.photoUrl.isNullOrBlank()) "Adicionar foto" else "Alterar foto") }
                                     TextButton(onClick = { confirmReset = guard }) { Text("Redefinir PIN") }
                                     TextButton(onClick = { confirmArchive = guard }) { Text("Arquivar") }
                                 } else {
@@ -101,6 +125,14 @@ fun GuardsScreen(onBack: () -> Unit) {
                 tempPin = pin
                 refresh++
             },
+        )
+    }
+
+    photoGuard?.let { guard ->
+        GuardPhotoDialog(
+            guard = guard,
+            onDismiss = { photoGuard = null },
+            onSaved = { photoGuard = null; refresh++ },
         )
     }
 
@@ -157,9 +189,7 @@ fun GuardsScreen(onBack: () -> Unit) {
                     Text("Este PIN é exibido somente agora. Anote ou informe ao porteiro. No primeiro acesso ele será obrigado a criar um PIN pessoal.")
                 }
             },
-            confirmButton = {
-                Button(onClick = { tempPin = null }) { Text("Já anotei") }
-            },
+            confirmButton = { Button(onClick = { tempPin = null }) { Text("Já anotei") } },
         )
     }
 }
@@ -170,22 +200,23 @@ private fun NewGuardDialog(
     onCreated: (String, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var name by remember { mutableStateOf("") }
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> photoUri = uri }
 
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Novo porteiro") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nome") },
-                    singleLine = true,
-                )
-                Text("A foto será adicionada quando implementarmos o upload de imagens.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
+                OutlinedButton(onClick = { launcher.launch("image/*") }) {
+                    Text(if (photoUri == null) "Selecionar foto (opcional)" else "Foto selecionada • trocar")
+                }
+                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -197,16 +228,73 @@ private fun NewGuardDialog(
                     scope.launch {
                         loading = true
                         error = null
-                        runCatching { GuardRepository.create(name) }
-                            .onSuccess { response ->
-                                val pin = response.temporaryPin ?: error("PIN temporário não retornado.")
-                                onCreated(name.trim(), pin)
-                            }
-                            .onFailure { error = it.message }
+                        runCatching {
+                            val photo = photoUri?.let { readPhoto(context.contentResolver, it) }
+                            GuardRepository.createWithPhoto(
+                                name = name,
+                                photoBytes = photo?.bytes,
+                                contentType = photo?.contentType,
+                                extension = photo?.extension ?: "jpg",
+                            )
+                        }.onSuccess { response ->
+                            val pin = response.temporaryPin ?: error("PIN temporário não retornado.")
+                            onCreated(name.trim(), pin)
+                        }.onFailure { error = it.message }
                         loading = false
                     }
                 },
             ) { Text(if (loading) "Salvando..." else "Cadastrar") }
         },
     )
+}
+
+@Composable
+private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var uri by remember { mutableStateOf<Uri?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri = it }
+
+    AlertDialog(
+        onDismissRequest = { if (!loading) onDismiss() },
+        title = { Text("Foto de ${guard.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { launcher.launch("image/*") }) { Text(if (uri == null) "Escolher foto" else "Foto selecionada • trocar") }
+                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") } },
+        confirmButton = {
+            Button(enabled = uri != null && !loading, onClick = {
+                val selected = uri ?: return@Button
+                scope.launch {
+                    loading = true
+                    runCatching {
+                        val photo = readPhoto(context.contentResolver, selected)
+                        GuardRepository.uploadPhoto(guard.id, photo.bytes, photo.contentType, photo.extension)
+                    }.onSuccess { onSaved() }.onFailure { error = it.message }
+                    loading = false
+                }
+            }) { Text(if (loading) "Enviando..." else "Salvar foto") }
+        },
+    )
+}
+
+private data class SelectedPhoto(val bytes: ByteArray, val contentType: ContentType, val extension: String)
+
+private fun readPhoto(resolver: android.content.ContentResolver, uri: Uri): SelectedPhoto {
+    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Não foi possível ler a foto.")
+    require(bytes.size <= 5 * 1024 * 1024) { "A foto deve ter no máximo 5 MB." }
+    val mime = resolver.getType(uri) ?: "image/jpeg"
+    val contentType = ContentType.parse(mime)
+    val extension = when (mime.lowercase()) {
+        "image/png" -> "png"
+        "image/webp" -> "webp"
+        else -> "jpg"
+    }
+    return SelectedPhoto(bytes, contentType, extension)
 }
