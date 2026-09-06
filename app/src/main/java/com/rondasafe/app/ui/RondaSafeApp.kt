@@ -77,7 +77,7 @@ fun RondaSafeApp() {
             },
         )
 
-        AdminScreen.CHECKPOINT_DETAIL -> CheckpointDetailScreen(
+        AdminScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
             checkpoint = requireNotNull(selection.checkpoint),
             onBack = { screen = AdminScreen.CHECKPOINTS },
         )
