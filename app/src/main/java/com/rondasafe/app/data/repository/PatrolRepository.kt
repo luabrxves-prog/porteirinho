@@ -108,6 +108,9 @@ object PatrolRepository {
         return options
     }
 
+    suspend fun allActiveCheckpointIds(buildingId: String): List<String> =
+        listCheckpointOptions(buildingId).map { it.checkpoint.id }.distinct()
+
     suspend fun saveTemplate(
         templateId: String? = null,
         buildingId: String,
@@ -115,12 +118,20 @@ object PatrolRepository {
         description: String?,
         lateToleranceMinutes: Int,
         days: List<PatrolDayConfig>,
-        checkpointIds: List<String>,
+        checkpointIds: List<String> = emptyList(),
     ): String {
         require(name.isNotBlank()) { "Informe um nome para a ronda." }
         require(days.any { it.enabled }) { "Selecione ao menos um dia da semana." }
-        require(checkpointIds.isNotEmpty()) { "Selecione ao menos um ponto obrigatório." }
         require(lateToleranceMinutes in 0..1440) { "Tolerância inválida." }
+
+        val effectiveCheckpointIds = if (checkpointIds.isEmpty()) {
+            allActiveCheckpointIds(buildingId)
+        } else {
+            checkpointIds.distinct()
+        }
+        require(effectiveCheckpointIds.isNotEmpty()) {
+            "Cadastre pelo menos um ponto de ronda antes de criar a programação."
+        }
 
         val enabledDays = days.filter { it.enabled }
         enabledDays.forEach { day ->
@@ -144,7 +155,7 @@ object PatrolRepository {
                 }
             })
             put("p_checkpoint_ids", buildJsonArray {
-                checkpointIds.distinct().forEach { add(JsonPrimitive(it)) }
+                effectiveCheckpointIds.forEach { add(JsonPrimitive(it)) }
             })
         }
 
@@ -157,7 +168,7 @@ object PatrolRepository {
         description: String?,
         lateToleranceMinutes: Int,
         days: List<PatrolDayConfig>,
-        checkpointIds: List<String>,
+        checkpointIds: List<String> = emptyList(),
     ): PatrolTemplateDto {
         val id = saveTemplate(
             buildingId = buildingId,
