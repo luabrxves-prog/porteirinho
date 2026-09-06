@@ -5,6 +5,7 @@ import com.rondasafe.app.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -122,15 +123,15 @@ object PatrolRepository {
 
         val enabledDays = days.filter { it.enabled }
         enabledDays.forEach { day ->
-            require(day.startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido em ${day.dayOfWeek}." }
-            require(day.endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido em ${day.dayOfWeek}." }
+            require(day.startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido." }
+            require(day.endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido." }
         }
 
         val params = buildJsonObject {
-            if (templateId == null) put("p_template_id", null as String?) else put("p_template_id", templateId)
+            if (templateId == null) put("p_template_id", JsonNull) else put("p_template_id", templateId)
             put("p_building_id", buildingId)
             put("p_name", name.trim())
-            put("p_description", description?.trim()?.takeIf { it.isNotEmpty() })
+            if (description.isNullOrBlank()) put("p_description", JsonNull) else put("p_description", description.trim())
             put("p_late_tolerance_minutes", lateToleranceMinutes)
             put("p_days", buildJsonArray {
                 enabledDays.forEach { day ->
