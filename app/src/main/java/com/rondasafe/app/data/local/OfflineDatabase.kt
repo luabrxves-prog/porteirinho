@@ -31,29 +31,6 @@ data class PendingEventEntity(
     }
 }
 
-@Entity(tableName = "offline_qr_tokens")
-data class OfflineQrTokenEntity(
-    @PrimaryKey val tokenHash: String,
-    val qrTokenId: String,
-    val checkpointId: String,
-    val checkpointName: String,
-    val version: Int,
-    val cachedAt: String,
-)
-
-@Entity(tableName = "offline_patrol_state")
-data class OfflinePatrolStateEntity(
-    @PrimaryKey val runId: String,
-    val guardId: String,
-    val guardName: String,
-    val shiftId: String,
-    val patrolName: String,
-    val requiredPoints: Int,
-    val visitedPoints: Int,
-    val startedAtLocal: String,
-    val active: Boolean,
-)
-
 @Entity(tableName = "local_shifts")
 data class LocalShiftEntity(
     @PrimaryKey val shiftClientEventId: String,
@@ -98,6 +75,9 @@ interface OfflineDao {
     @Query("select * from pending_events where state = 'PENDING' order by createdAtLocal, rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
 
+    @Query("select * from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc")
+    suspend fun permanentFailures(): List<PendingEventEntity>
+
     @Query("select count(*) from pending_events where state = 'PENDING'")
     suspend fun pendingCount(): Int
 
@@ -119,26 +99,8 @@ interface OfflineDao {
     @Query("update pending_events set attempts = attempts + 1, lastError = :error, state = 'FAILED_PERMANENT' where clientEventId = :id")
     suspend fun markPermanentFailure(id: String, error: String?)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun cacheQr(tokens: List<OfflineQrTokenEntity>)
-
-    @Query("select * from offline_qr_tokens where tokenHash = :hash limit 1")
-    suspend fun qrByHash(hash: String): OfflineQrTokenEntity?
-
-    @Query("delete from offline_qr_tokens")
-    suspend fun clearQrs()
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun savePatrol(state: OfflinePatrolStateEntity)
-
-    @Query("select * from offline_patrol_state where active = 1 limit 1")
-    suspend fun activePatrol(): OfflinePatrolStateEntity?
-
-    @Query("update offline_patrol_state set visitedPoints = :visitedPoints where runId = :runId")
-    suspend fun updateVisited(runId: String, visitedPoints: Int)
-
-    @Query("update offline_patrol_state set active = 0 where runId = :runId")
-    suspend fun finishPatrol(runId: String)
+    @Query("update pending_events set state = 'PENDING', lastError = null where clientEventId = :id and state = 'FAILED_PERMANENT'")
+    suspend fun requeuePermanentFailure(id: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveLocalShift(shift: LocalShiftEntity)
@@ -177,13 +139,11 @@ interface OfflineDao {
 @Database(
     entities = [
         PendingEventEntity::class,
-        OfflineQrTokenEntity::class,
-        OfflinePatrolStateEntity::class,
         LocalShiftEntity::class,
         LocalPatrolRunEntity::class,
         LocalVisitedCheckpointEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {
@@ -212,6 +172,13 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `offline_qr_tokens`")
+                db.execSQL("DROP TABLE IF EXISTS `offline_patrol_state`")
+            }
+        }
+
         fun get(context: Context): OfflineDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -219,7 +186,7 @@ abstract class OfflineDatabase : RoomDatabase() {
                     OfflineDatabase::class.java,
                     "rondasafe_offline.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
