@@ -33,9 +33,7 @@ enum class AppScreen {
     PATROL_HISTORY,
     PATROL_ASSIGNMENTS,
     OFFLINE_SYNC,
-    BUILDINGS,
-    BLOCKS,
-    FLOORS,
+    LOCATIONS,
     CHECKPOINTS,
     CHECKPOINT_DETAIL,
     GUARDS,
@@ -54,7 +52,7 @@ enum class AppScreen {
 
 @Composable
 fun RondaSafeApp() {
-    var screen by remember { mutableStateOf(if (AuthRepository.hasSession()) AppScreen.ADMIN_DASHBOARD else AppScreen.ENTRY) }
+    var screen by remember { mutableStateOf(if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) AppScreen.ADMIN_DASHBOARD else AppScreen.ENTRY) }
     var selection by remember { mutableStateOf(AdminSelection()) }
     var selectedPatrolTemplate by remember { mutableStateOf<PatrolTemplateDto?>(null) }
     var selectedGuard by remember { mutableStateOf<PortariaGuardDto?>(null) }
@@ -67,13 +65,13 @@ fun RondaSafeApp() {
         AppScreen.ENTRY -> EntryScreen(
             portariaEnabled = PortariaRepository.deviceCredential != null,
             onPortaria = { screen = AppScreen.GUARD_SELECTION },
-            onAdmin = { screen = if (AuthRepository.hasSession()) AppScreen.ADMIN_DASHBOARD else AppScreen.ADMIN_LOGIN },
+            onAdmin = { screen = if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) AppScreen.ADMIN_DASHBOARD else AppScreen.ADMIN_LOGIN },
         )
 
         AppScreen.ADMIN_LOGIN -> AdminLoginScreen(onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD })
 
         AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
-            onOpenLocations = { screen = AppScreen.BUILDINGS },
+            onOpenLocations = { screen = AppScreen.LOCATIONS },
             onOpenGuards = { screen = AppScreen.GUARDS },
             onOpenPatrols = { screen = AppScreen.PATROLS },
             onOpenAssignments = { screen = AppScreen.PATROL_ASSIGNMENTS },
@@ -89,23 +87,16 @@ fun RondaSafeApp() {
         AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
 
-        AppScreen.BUILDINGS -> BuildingsScreen(
+        AppScreen.LOCATIONS -> SimplifiedLocationsScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onSelect = { selection = AdminSelection(building = it); screen = AppScreen.BLOCKS },
-        )
-        AppScreen.BLOCKS -> BlocksScreen(
-            building = requireNotNull(selection.building),
-            onBack = { screen = AppScreen.BUILDINGS },
-            onSelect = { selection = selection.copy(block = it, floor = null, checkpoint = null); screen = AppScreen.FLOORS },
-        )
-        AppScreen.FLOORS -> FloorsScreen(
-            block = requireNotNull(selection.block),
-            onBack = { screen = AppScreen.BLOCKS },
-            onSelect = { selection = selection.copy(floor = it, checkpoint = null); screen = AppScreen.CHECKPOINTS },
+            onOpenFloor = { building, block, floor ->
+                selection = AdminSelection(building = building, block = block, floor = floor)
+                screen = AppScreen.CHECKPOINTS
+            },
         )
         AppScreen.CHECKPOINTS -> CheckpointsScreen(
             floor = requireNotNull(selection.floor),
-            onBack = { screen = AppScreen.FLOORS },
+            onBack = { screen = AppScreen.LOCATIONS },
             onSelect = { selection = selection.copy(checkpoint = it); screen = AppScreen.CHECKPOINT_DETAIL },
         )
         AppScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
@@ -180,71 +171,49 @@ private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmi
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 36.dp),
+                .padding(horizontal = 24.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.weight(0.85f))
+            Spacer(Modifier.weight(0.7f))
             RondaSafeBrand(
                 modifier = Modifier.width(190.dp),
                 darkBackground = true,
                 showTagline = true,
             )
-            Spacer(Modifier.weight(0.8f))
+            Spacer(Modifier.weight(0.65f))
 
-            Card(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(
-                    Modifier.padding(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                Button(
+                    onClick = onPortaria,
+                    enabled = portariaEnabled,
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(18.dp),
                 ) {
+                    Text("Entrar como Portaria", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = onAdmin,
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = RondaSafeColors.Navy),
+                ) {
+                    Text("Entrar como Administrador", fontWeight = FontWeight.Bold)
+                }
+                if (!portariaEnabled) {
                     Text(
-                        "Como deseja acessar?",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = RondaSafeColors.Text,
+                        "Este celular ainda não está configurado como portaria.",
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f),
                     )
-                    Text(
-                        "Use Portaria para iniciar uma ronda ou Administrador para gerenciar o sistema.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = RondaSafeColors.Muted,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Button(
-                        onClick = onPortaria,
-                        enabled = portariaEnabled,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Text("Entrar como Portaria", fontWeight = FontWeight.SemiBold)
-                    }
-                    OutlinedButton(
-                        onClick = onAdmin,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Navy),
-                    ) {
-                        Text("Entrar como Administrador", fontWeight = FontWeight.SemiBold)
-                    }
-                    if (!portariaEnabled) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = RondaSafeColors.BlueSoft,
-                        ) {
-                            Text(
-                                "Este aparelho ainda não foi configurado como portaria. O acesso administrativo continua disponível.",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = RondaSafeColors.Navy,
-                            )
-                        }
-                    }
                 }
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(20.dp))
             Text(
-                "Controle simples. Rondas auditáveis. Dados seguros.",
+                "Condomínios mais seguros com tecnologia simples.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.62f),
             )
