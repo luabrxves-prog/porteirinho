@@ -12,7 +12,12 @@ import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolHistoryRepository
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PatrolHistoryScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -23,6 +28,10 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
 
     var days by remember { mutableIntStateOf(30) }
+    var customRange by remember { mutableStateOf(false) }
+    var customFrom by remember { mutableStateOf(LocalDate.now().minusDays(30)) }
+    var customTo by remember { mutableStateOf(LocalDate.now()) }
+    var datePickerTarget by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var guard by remember { mutableStateOf<GuardDto?>(null) }
     var building by remember { mutableStateOf<BuildingDto?>(null) }
@@ -36,14 +45,27 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
             loading = true
             error = null
             runCatching {
-                PatrolHistoryRepository.list(
-                    days = days,
-                    status = status,
-                    guardId = guard?.id,
-                    buildingId = building?.id,
-                    blockId = block?.id,
-                    floorId = floor?.id,
-                )
+                if (customRange) {
+                    val zone = ZoneId.systemDefault()
+                    PatrolHistoryRepository.listRange(
+                        from = customFrom.atStartOfDay(zone).toInstant(),
+                        to = customTo.plusDays(1).atStartOfDay(zone).toInstant().minusMillis(1),
+                        status = status,
+                        guardId = guard?.id,
+                        buildingId = building?.id,
+                        blockId = block?.id,
+                        floorId = floor?.id,
+                    )
+                } else {
+                    PatrolHistoryRepository.list(
+                        days = days,
+                        status = status,
+                        guardId = guard?.id,
+                        buildingId = building?.id,
+                        blockId = block?.id,
+                        floorId = floor?.id,
+                    )
+                }
             }.onSuccess { rows = it }
                 .onFailure { error = it.message }
             loading = false
@@ -79,10 +101,29 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(7, 30, 90).forEach { option ->
                     FilterChip(
-                        selected = days == option,
-                        onClick = { days = option; reload() },
+                        selected = !customRange && days == option,
+                        onClick = { customRange = false; days = option; reload() },
                         label = { Text("$option dias") },
                     )
+                }
+                FilterChip(
+                    selected = customRange,
+                    onClick = { customRange = true },
+                    label = { Text("Personalizado") },
+                )
+            }
+
+            if (customRange) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { datePickerTarget = "from" }, modifier = Modifier.weight(1f)) {
+                        Text("De ${formatLocalDate(customFrom)}")
+                    }
+                    OutlinedButton(onClick = { datePickerTarget = "to" }, modifier = Modifier.weight(1f)) {
+                        Text("Até ${formatLocalDate(customTo)}")
+                    }
+                }
+                Button(onClick = { reload() }, enabled = !customFrom.isAfter(customTo), modifier = Modifier.fillMaxWidth()) {
+                    Text("Aplicar período")
                 }
             }
 
@@ -134,21 +175,35 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
 
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
-            if (!loading && rows.isEmpty()) {
-                Text("Nenhuma ronda encontrada para os filtros selecionados.")
-            }
+            if (!loading && rows.isEmpty()) Text("Nenhuma ronda encontrada para os filtros selecionados.")
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp),
             ) {
-                items(rows, key = { it.id }) { item ->
-                    PatrolHistoryCard(item)
-                }
+                items(rows, key = { it.id }) { item -> PatrolHistoryCard(item) }
             }
         }
+    }
+
+    datePickerTarget?.let { target ->
+        val current = if (target == "from") customFrom else customTo
+        val zone = ZoneId.systemDefault()
+        val state = rememberDatePickerState(initialSelectedDateMillis = current.atStartOfDay(zone).toInstant().toEpochMilli())
+        DatePickerDialog(
+            onDismissRequest = { datePickerTarget = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { millis ->
+                        val selected = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        if (target == "from") customFrom = selected else customTo = selected
+                    }
+                    datePickerTarget = null
+                }) { Text("Confirmar") }
+            },
+            dismissButton = { TextButton(onClick = { datePickerTarget = null }) { Text("Cancelar") } },
+        ) { DatePicker(state = state) }
     }
 }
 
@@ -237,10 +292,7 @@ private fun <T> FilterMenu(
             options.forEach { (value, title) ->
                 DropdownMenuItem(
                     text = { Text(title) },
-                    onClick = {
-                        expanded = false
-                        onSelected(value)
-                    },
+                    onClick = { expanded = false; onSelected(value) },
                 )
             }
         }
@@ -256,7 +308,11 @@ private fun historyStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-private fun historyDate(value: String): String = value
-    .replace("T", " ")
-    .substringBefore(".")
-    .replace("Z", "")
+private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+private fun historyDate(value: String): String = runCatching {
+    Instant.parse(value).atZone(ZoneId.systemDefault()).format(dateTimeFormatter)
+}.getOrElse { value.replace("T", " ").substringBefore(".").replace("Z", "") }
+
+private fun formatLocalDate(value: LocalDate): String = value.format(dateFormatter)
