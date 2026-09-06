@@ -33,6 +33,14 @@ data class PatrolTemplateCheckpointDto(
 )
 
 @Serializable
+data class PatrolScheduleAssignmentDto(
+    val id: String,
+    @SerialName("schedule_window_id") val scheduleWindowId: String,
+    @SerialName("guard_id") val guardId: String,
+    val active: Boolean,
+)
+
+@Serializable
 data class CreatePatrolTemplateDto(
     @SerialName("building_id") val buildingId: String,
     val name: String,
@@ -55,6 +63,14 @@ data class CreatePatrolTemplateCheckpointDto(
     @SerialName("patrol_template_id") val patrolTemplateId: String,
     @SerialName("checkpoint_id") val checkpointId: String,
     val required: Boolean = true,
+    @SerialName("created_by") val createdBy: String,
+)
+
+@Serializable
+data class CreatePatrolScheduleAssignmentDto(
+    @SerialName("schedule_window_id") val scheduleWindowId: String,
+    @SerialName("guard_id") val guardId: String,
+    val active: Boolean = true,
     @SerialName("created_by") val createdBy: String,
 )
 
