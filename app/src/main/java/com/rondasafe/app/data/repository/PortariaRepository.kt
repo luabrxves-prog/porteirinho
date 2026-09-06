@@ -17,6 +17,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 
@@ -91,11 +92,11 @@ object PortariaRepository {
 
     suspend fun listGuards(): List<PortariaGuardDto> {
         val context = appContext
-        return runCatching {
+        return try {
             val online = invoke<GuardListResponse>(PortariaRequest(action = "list_guards")).guards
             runCatching { syncOperationalCache() }
             online
-        }.getOrElse { error ->
+        } catch (error: IOException) {
             if (context != null) OfflineOperationalCache.guards(context).takeIf { it.isNotEmpty() } ?: throw error
             else throw error
         }
@@ -103,7 +104,7 @@ object PortariaRepository {
 
     suspend fun loginGuard(guardId: String, pin: String): GuardLoginResponse {
         val context = appContext
-        return runCatching {
+        return try {
             val payload = invoke<GuardLoginResponse>(
                 PortariaRequest(action = "login_guard", guardId = guardId, pin = pin),
                 includeGuardSession = false,
@@ -111,17 +112,30 @@ object PortariaRepository {
             val guard = payload.guard ?: error("Porteiro não retornado.")
             val token = payload.guardSession ?: error("Sessão do porteiro não retornada.")
             guardSession = GuardSession(guard.id, guard.name, token = token, offline = false)
+            context?.let { OfflineOperationalCache.clearPinLockout(it, guard.id) }
             runCatching { syncOperationalCache() }
             payload
-        }.getOrElse { onlineError ->
-            val cached = context?.let { OfflineOperationalCache.verifyPin(it, guardId, pin) } ?: throw onlineError
-            if (cached.credential.mustChangePin) error("O primeiro acesso e a troca do PIN temporário precisam de conexão.")
-            guardSession = GuardSession(cached.id, cached.name, token = null, offline = true)
-            GuardLoginResponse(
-                guard = GuardLoginDto(cached.id, cached.name, cached.pinState),
-                mustChangePin = false,
-                guardSession = "offline",
-            )
+        } catch (onlineError: IOException) {
+            val verification = context?.let { OfflineOperationalCache.verifyPin(it, guardId, pin) }
+                ?: throw onlineError
+            when (verification) {
+                is OfflineOperationalCache.PinVerification.Success -> {
+                    val cached = verification.guard
+                    guardSession = GuardSession(cached.id, cached.name, token = null, offline = true)
+                    GuardLoginResponse(
+                        guard = GuardLoginDto(cached.id, cached.name, cached.pinState),
+                        mustChangePin = false,
+                        guardSession = "offline",
+                    )
+                }
+                is OfflineOperationalCache.PinVerification.Invalid ->
+                    error("PIN inválido. Restam ${verification.remainingAttempts} tentativa(s) offline.")
+                is OfflineOperationalCache.PinVerification.Locked ->
+                    error("PIN temporariamente bloqueado neste aparelho por 15 minutos.")
+                OfflineOperationalCache.PinVerification.RequiresConnection ->
+                    error("O primeiro acesso e a troca do PIN temporário precisam de conexão.")
+                OfflineOperationalCache.PinVerification.GuardUnavailable -> throw onlineError
+            }
         }
     }
 
