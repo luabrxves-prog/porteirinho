@@ -44,7 +44,10 @@ class OfflineSyncWorker(
             val payload = runCatching {
                 json.parseToJsonElement(event.payloadJson).jsonObject
             }.getOrElse {
-                dao.markFailed(event.clientEventId, "Payload local inválido: ${it.message}")
+                dao.markPermanentFailure(
+                    event.clientEventId,
+                    "Payload local inválido: ${it.message ?: "erro de leitura"}",
+                )
                 continue
             }
 
@@ -67,7 +70,7 @@ class OfflineSyncWorker(
                     ),
                 ).body<OfflineIngestResponse>()
             }.getOrElse {
-                dao.markFailed(event.clientEventId, it.message)
+                dao.markFailed(event.clientEventId, it.message ?: "Falha de conexão.")
                 return Result.retry()
             }
 
@@ -76,11 +79,19 @@ class OfflineSyncWorker(
                 continue
             }
 
-            dao.markFailed(event.clientEventId, response.error)
-            if (response.retryable != false) return Result.retry()
+            if (response.retryable == false) {
+                dao.markPermanentFailure(
+                    event.clientEventId,
+                    response.error ?: "O servidor rejeitou definitivamente este evento.",
+                )
+                continue
+            }
+
+            dao.markFailed(event.clientEventId, response.error ?: "Falha temporária de sincronização.")
+            return Result.retry()
         }
 
-        return if (dao.pending(1).isEmpty()) Result.success() else Result.success()
+        return Result.success()
     }
 
     companion object {
