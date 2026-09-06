@@ -54,6 +54,8 @@ fun GuardSelectionScreen(onGuardSelected: (PortariaGuardDto) -> Unit, onBack: ()
 
     Scaffold(topBar = { AppTopBar("Portaria", onBack) }) { padding ->
         Column(Modifier.padding(padding).padding(20.dp).fillMaxSize()) {
+            OfflineSyncStatusBanner()
+            Spacer(Modifier.height(16.dp))
             Text("Quem está iniciando o turno?", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(16.dp))
             if (loading) CircularProgressIndicator()
@@ -137,11 +139,14 @@ fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = { AppTopBar("Meu turno", onBack) }) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            OfflineSyncStatusBanner()
+            Spacer(Modifier.weight(1f))
             Text(PortariaRepository.guardSession?.guardName ?: "Porteiro", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(24.dp))
             Button(onClick = { scope.launch { runCatching { PortariaRepository.startShift() }.onSuccess(onShiftStarted).onFailure { error = it.message } } }) { Text("Iniciar turno") }
             error?.let { Spacer(Modifier.height(12.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -158,6 +163,8 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
 
     Scaffold(topBar = { AppTopBar("Rondas disponíveis") }) { padding ->
         Column(Modifier.padding(padding).padding(20.dp).fillMaxSize()) {
+            OfflineSyncStatusBanner()
+            Spacer(Modifier.height(12.dp))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (!loading && patrols.isEmpty()) Text("Nenhuma ronda disponível neste horário.")
@@ -189,6 +196,7 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
 
     Scaffold(topBar = { AppTopBar(patrolName) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            OfflineSyncStatusBanner(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             Text("$visited/${run.requiredPoints} pontos visitados", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
             QrCameraScanner(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -265,11 +273,14 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
 
 @Composable
 fun PatrolFinishedScreen(result: FinishPatrolDto, onDone: () -> Unit) {
-    Column(Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.padding(24.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        OfflineSyncStatusBanner()
+        Spacer(Modifier.weight(1f))
         Text(if (result.status == "COMPLETED") "Ronda concluída" else "Ronda incompleta", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Text("${result.visitedPoints}/${result.totalPoints} pontos visitados")
         Spacer(Modifier.height(24.dp))
         Button(onClick = onDone) { Text("Voltar às rondas") }
+        Spacer(Modifier.weight(1f))
     }
 }
