@@ -8,6 +8,24 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.rondasafe.app.data.remote.SupabaseProvider
+import com.rondasafe.app.data.repository.PortariaRepository
+import io.github.jan.supabase.functions.functions
+import io.ktor.client.call.body
+import io.ktor.http.HttpHeaders
+import io.ktor.http.headersOf
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+
+@Serializable
+private data class OfflineIngestResponse(
+    val ack: Boolean = false,
+    val retryable: Boolean? = null,
+    val error: String? = null,
+)
 
 class OfflineSyncWorker(
     appContext: Context,
@@ -18,9 +36,51 @@ class OfflineSyncWorker(
         val pending = dao.pending()
         if (pending.isEmpty()) return Result.success()
 
-        // O envio idempotente de cada tipo de evento será ligado ao endpoint
-        // de ingestão offline. Até lá, nunca removemos eventos sem ACK do servidor.
-        return Result.retry()
+        PortariaRepository.restoreDeviceCredential(applicationContext)
+        val device = PortariaRepository.deviceCredential ?: return Result.retry()
+        val json = Json { ignoreUnknownKeys = true }
+
+        for (event in pending) {
+            val payload = runCatching {
+                json.parseToJsonElement(event.payloadJson).jsonObject
+            }.getOrElse {
+                dao.markFailed(event.clientEventId, "Payload local inválido: ${it.message}")
+                continue
+            }
+
+            val body = buildJsonObject {
+                put("client_event_id", event.clientEventId)
+                put("type", event.type)
+                put("created_at_local", event.createdAtLocal)
+                event.monotonicMs?.let { put("monotonic_ms", it) }
+                put("payload", payload)
+            }
+
+            val response = runCatching {
+                SupabaseProvider.client.functions.invoke(
+                    function = "offline-ingest",
+                    body = body,
+                    headers = headersOf(
+                        "x-device-id" to listOf(device.deviceId),
+                        "x-device-secret" to listOf(device.deviceSecret),
+                        HttpHeaders.ContentType to listOf("application/json"),
+                    ),
+                ).body<OfflineIngestResponse>()
+            }.getOrElse {
+                dao.markFailed(event.clientEventId, it.message)
+                return Result.retry()
+            }
+
+            if (response.ack) {
+                dao.markSynced(event.clientEventId)
+                continue
+            }
+
+            dao.markFailed(event.clientEventId, response.error)
+            if (response.retryable != false) return Result.retry()
+        }
+
+        return if (dao.pending(1).isEmpty()) Result.success() else Result.success()
     }
 
     companion object {
