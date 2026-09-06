@@ -14,6 +14,7 @@ fun AdminDashboardScreenV3(
     onOpenLocations: () -> Unit,
     onOpenGuards: () -> Unit,
     onOpenPatrols: () -> Unit,
+    onOpenAssignments: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenAlerts: () -> Unit,
     onOpenDeviceProvision: () -> Unit,
@@ -35,6 +36,11 @@ fun AdminDashboardScreenV3(
                 "Programação de Rondas",
                 "Crie rondas com dias, horários, tolerância e pontos obrigatórios.",
                 onOpenPatrols,
+            )
+            DashboardCardV3(
+                "Responsáveis por Ronda",
+                "Defina quais porteiros podem executar cada janela de horário.",
+                onOpenAssignments,
             )
             DashboardCardV3(
                 "Configurar aparelho da portaria",
