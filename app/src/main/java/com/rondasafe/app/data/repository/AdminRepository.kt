@@ -2,11 +2,11 @@ package com.rondasafe.app.data.repository
 
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.remote.SupabaseProvider
-import io.github.jan.supabase.auth.currentUserOrNull
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.ktor.client.call.body
-import kotlinx.datetime.Clock
+import java.time.Instant
 
 object AdminRepository {
     private val client get() = SupabaseProvider.client
@@ -81,7 +81,7 @@ object AdminRepository {
 
     suspend fun archive(table: String, id: String) {
         val adminId = currentAdminId()
-        val now = Clock.System.now().toString()
+        val now = Instant.now().toString()
         client.from(table).update(
             ArchiveDto(archivedAt = now, archivedBy = adminId)
         ) {
