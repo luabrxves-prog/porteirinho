@@ -58,7 +58,8 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                 onClick = {
                     val building = selected ?: return@Button
                     scope.launch {
-                        loading = true; error = null
+                        loading = true
+                        error = null
                         runCatching {
                             PortariaRepository.provisionDevice(
                                 DeviceProvisionRequest(
@@ -70,7 +71,9 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                                     appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "",
                                 )
                             )
-                        }.onSuccess { onProvisioned() }.onFailure { error = it.message }
+                            PortariaRepository.persistDeviceCredential(context)
+                        }.onSuccess { onProvisioned() }
+                            .onFailure { error = it.message }
                         loading = false
                     }
                 },
