@@ -34,6 +34,7 @@ enum class AppScreen {
     GUARDS,
     PATROLS,
     PATROL_CREATE,
+    PATROL_EDIT,
     DEVICE_PROVISION,
     GUARD_SELECTION,
     GUARD_PIN,
@@ -48,6 +49,7 @@ enum class AppScreen {
 fun RondaSafeApp() {
     var screen by remember { mutableStateOf(if (AuthRepository.hasSession()) AppScreen.ADMIN_DASHBOARD else AppScreen.ENTRY) }
     var selection by remember { mutableStateOf(AdminSelection()) }
+    var selectedPatrolTemplate by remember { mutableStateOf<PatrolTemplateDto?>(null) }
     var selectedGuard by remember { mutableStateOf<PortariaGuardDto?>(null) }
     var shift by remember { mutableStateOf<ShiftDto?>(null) }
     var activePatrol by remember { mutableStateOf<AvailablePatrolDto?>(null) }
@@ -104,11 +106,17 @@ fun RondaSafeApp() {
         AppScreen.GUARDS -> GuardsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.PATROLS -> PatrolTemplatesScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onCreate = { screen = AppScreen.PATROL_CREATE },
+            onCreate = { selectedPatrolTemplate = null; screen = AppScreen.PATROL_CREATE },
+            onEdit = { selectedPatrolTemplate = it; screen = AppScreen.PATROL_EDIT },
         )
         AppScreen.PATROL_CREATE -> CreatePatrolTemplateScreen(
             onBack = { screen = AppScreen.PATROLS },
-            onCreated = { screen = AppScreen.PATROLS },
+            onCreated = { selectedPatrolTemplate = null; screen = AppScreen.PATROLS },
+        )
+        AppScreen.PATROL_EDIT -> CreatePatrolTemplateScreen(
+            template = requireNotNull(selectedPatrolTemplate),
+            onBack = { selectedPatrolTemplate = null; screen = AppScreen.PATROLS },
+            onCreated = { selectedPatrolTemplate = null; screen = AppScreen.PATROLS },
         )
         AppScreen.DEVICE_PROVISION -> DeviceProvisionScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
