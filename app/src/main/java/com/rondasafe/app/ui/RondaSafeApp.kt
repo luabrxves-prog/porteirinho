@@ -1,15 +1,21 @@
 package com.rondasafe.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AuthRepository
 import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.admin.*
+import com.rondasafe.app.ui.components.RondaSafeBrand
+import com.rondasafe.app.ui.components.RondaSafeColors
 import com.rondasafe.app.ui.portaria.*
 
 data class AdminSelection(
@@ -166,21 +172,82 @@ fun RondaSafeApp() {
 
 @Composable
 private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmin: () -> Unit) {
-    Surface(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(RondaSafeColors.Navy),
+    ) {
         Column(
-            Modifier.fillMaxSize().padding(28.dp),
-            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp, vertical = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("RondaSafe", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(32.dp))
-            Button(onClick = onPortaria, enabled = portariaEnabled, modifier = Modifier.fillMaxWidth()) { Text("Portaria") }
-            if (!portariaEnabled) {
-                Spacer(Modifier.height(8.dp))
-                Text("Este aparelho ainda não foi configurado como portaria.", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.weight(0.85f))
+            RondaSafeBrand(
+                modifier = Modifier.width(190.dp),
+                darkBackground = true,
+                showTagline = true,
+            )
+            Spacer(Modifier.weight(0.8f))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(26.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+            ) {
+                Column(
+                    Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Como deseja acessar?",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = RondaSafeColors.Text,
+                    )
+                    Text(
+                        "Use Portaria para iniciar uma ronda ou Administrador para gerenciar o sistema.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RondaSafeColors.Muted,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Button(
+                        onClick = onPortaria,
+                        enabled = portariaEnabled,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Text("Entrar como Portaria", fontWeight = FontWeight.SemiBold)
+                    }
+                    OutlinedButton(
+                        onClick = onAdmin,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Navy),
+                    ) {
+                        Text("Entrar como Administrador", fontWeight = FontWeight.SemiBold)
+                    }
+                    if (!portariaEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = RondaSafeColors.BlueSoft,
+                        ) {
+                            Text(
+                                "Este aparelho ainda não foi configurado como portaria. O acesso administrativo continua disponível.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RondaSafeColors.Navy,
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(14.dp))
-            OutlinedButton(onClick = onAdmin, modifier = Modifier.fillMaxWidth()) { Text("Administrador") }
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "Controle simples. Rondas auditáveis. Dados seguros.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.62f),
+            )
         }
     }
 }
