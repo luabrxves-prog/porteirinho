@@ -17,6 +17,7 @@ fun AdminDashboardScreenV3(
     onOpenAssignments: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenAlerts: () -> Unit,
+    onOpenSync: () -> Unit,
     onOpenDeviceProvision: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -31,22 +32,11 @@ fun AdminDashboardScreenV3(
             DashboardCardV3("Alertas", "Acompanhe atrasos, rondas incompletas, leituras suspeitas e falhas de sincronização.", onOpenAlerts)
             DashboardCardV3("Histórico de Rondas", "Consulte rondas concluídas, atrasadas, incompletas e não realizadas.", onOpenHistory)
             DashboardCardV3("Locais e QR Codes", "Cadastre blocos, andares, pontos e QR Codes.", onOpenLocations)
-            DashboardCardV3("Porteiros", "Cadastre porteiros, gere PIN temporário e redefina acessos.", onOpenGuards)
-            DashboardCardV3(
-                "Programação de Rondas",
-                "Crie rondas com dias, horários, tolerância e pontos obrigatórios.",
-                onOpenPatrols,
-            )
-            DashboardCardV3(
-                "Responsáveis por Ronda",
-                "Defina quais porteiros podem executar cada janela de horário.",
-                onOpenAssignments,
-            )
-            DashboardCardV3(
-                "Configurar aparelho da portaria",
-                "Pareie este celular com um prédio para uso pelos porteiros.",
-                onOpenDeviceProvision,
-            )
+            DashboardCardV3("Porteiros", "Cadastre porteiros, fotos, PIN temporário e redefina acessos.", onOpenGuards)
+            DashboardCardV3("Programação de Rondas", "Crie e edite rondas com dias, horários, tolerância e pontos obrigatórios.", onOpenPatrols)
+            DashboardCardV3("Responsáveis por Ronda", "Responsável é opcional: sem atribuição, qualquer porteiro ativo pode executar.", onOpenAssignments)
+            DashboardCardV3("Sincronização da Portaria", "Veja pendências locais e falhas permanentes sem perder registros.", onOpenSync)
+            DashboardCardV3("Configurar aparelho da portaria", "Pareie este celular com um prédio para uso pelos porteiros.", onOpenDeviceProvision)
             Spacer(Modifier.weight(1f))
             OutlinedButton(
                 onClick = {
