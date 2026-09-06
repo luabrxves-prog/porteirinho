@@ -6,6 +6,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -142,7 +143,9 @@ object PatrolRepository {
                     })
                 }
             })
-            put("p_checkpoint_ids", buildJsonArray { checkpointIds.distinct().forEach(::add) })
+            put("p_checkpoint_ids", buildJsonArray {
+                checkpointIds.distinct().forEach { add(JsonPrimitive(it)) }
+            })
         }
 
         return client.postgrest.rpc("save_patrol_template", params).decodeSingle<String>()
