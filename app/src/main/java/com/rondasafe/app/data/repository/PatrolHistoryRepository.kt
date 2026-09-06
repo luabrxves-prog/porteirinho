@@ -21,15 +21,37 @@ object PatrolHistoryRepository {
         floorId: String? = null,
     ): List<PatrolHistoryItemDto> {
         val now = Instant.now()
+        return listRange(
+            from = now.minus(days.toLong(), ChronoUnit.DAYS),
+            to = now,
+            status = status,
+            guardId = guardId,
+            buildingId = buildingId,
+            blockId = blockId,
+            floorId = floorId,
+        )
+    }
+
+    suspend fun listRange(
+        from: Instant,
+        to: Instant,
+        status: String? = null,
+        guardId: String? = null,
+        buildingId: String? = null,
+        blockId: String? = null,
+        floorId: String? = null,
+        limit: Int = 500,
+    ): List<PatrolHistoryItemDto> {
+        require(!from.isAfter(to)) { "A data inicial não pode ser posterior à data final." }
         val parameters = buildJsonObject {
-            put("p_from", now.minus(days.toLong(), ChronoUnit.DAYS).toString())
-            put("p_to", now.toString())
+            put("p_from", from.toString())
+            put("p_to", to.toString())
             status?.let { put("p_status", it) }
             guardId?.let { put("p_guard_id", it) }
             buildingId?.let { put("p_building_id", it) }
             blockId?.let { put("p_block_id", it) }
             floorId?.let { put("p_floor_id", it) }
-            put("p_limit", 200)
+            put("p_limit", limit.coerceIn(1, 500))
         }
         return client.postgrest.rpc(
             function = "admin_patrol_history",
