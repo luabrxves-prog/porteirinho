@@ -24,5 +24,7 @@ object AuthRepository {
         auth.signOut()
     }
 
-    fun hasSession(): Boolean = auth.currentUserOrNull() != null
+    fun hasSession(): Boolean = runCatching {
+        auth.currentUserOrNull() != null
+    }.getOrDefault(false)
 }
