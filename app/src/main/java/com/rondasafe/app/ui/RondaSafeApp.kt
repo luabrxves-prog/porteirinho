@@ -21,6 +21,8 @@ enum class AdminScreen {
     CHECKPOINTS,
     CHECKPOINT_DETAIL,
     GUARDS,
+    PATROLS,
+    PATROL_CREATE,
 }
 
 @Composable
@@ -35,9 +37,10 @@ fun RondaSafeApp() {
             onLoginSuccess = { screen = AdminScreen.DASHBOARD },
         )
 
-        AdminScreen.DASHBOARD -> AdminDashboardScreenV2(
+        AdminScreen.DASHBOARD -> AdminDashboardScreenV3(
             onOpenLocations = { screen = AdminScreen.BUILDINGS },
             onOpenGuards = { screen = AdminScreen.GUARDS },
+            onOpenPatrols = { screen = AdminScreen.PATROLS },
             onLogout = {
                 screen = AdminScreen.LOGIN
                 selection = AdminSelection()
@@ -86,6 +89,16 @@ fun RondaSafeApp() {
 
         AdminScreen.GUARDS -> GuardsScreen(
             onBack = { screen = AdminScreen.DASHBOARD },
+        )
+
+        AdminScreen.PATROLS -> PatrolTemplatesScreen(
+            onBack = { screen = AdminScreen.DASHBOARD },
+            onCreate = { screen = AdminScreen.PATROL_CREATE },
+        )
+
+        AdminScreen.PATROL_CREATE -> CreatePatrolTemplateScreen(
+            onBack = { screen = AdminScreen.PATROLS },
+            onCreated = { screen = AdminScreen.PATROLS },
         )
     }
 }
