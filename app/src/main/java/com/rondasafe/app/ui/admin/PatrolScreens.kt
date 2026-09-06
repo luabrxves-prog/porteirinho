@@ -1,26 +1,65 @@
 package com.rondasafe.app.ui.admin
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.rondasafe.app.data.model.*
+import com.rondasafe.app.data.model.PatrolDayConfig
+import com.rondasafe.app.data.model.PatrolScheduleWindowDto
+import com.rondasafe.app.data.model.PatrolTemplateDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.PatrolRepository
+import com.rondasafe.app.ui.components.RondaSafeColors
 import kotlinx.coroutines.launch
 
 private val dayNames = mapOf(
-    1 to "Segunda",
-    2 to "Terça",
-    3 to "Quarta",
-    4 to "Quinta",
-    5 to "Sexta",
-    6 to "Sábado",
-    7 to "Domingo",
+    1 to "Seg",
+    2 to "Ter",
+    3 to "Qua",
+    4 to "Qui",
+    5 to "Sex",
+    6 to "Sáb",
+    7 to "Dom",
 )
 
 @Composable
@@ -49,27 +88,54 @@ fun PatrolTemplatesScreen(
     LaunchedEffect(includeArchived) { reload() }
 
     Scaffold(
-        topBar = { AppTopBar("Programação de Rondas", onBack = onBack) },
-        floatingActionButton = { FloatingActionButton(onClick = onCreate) { Text("+") } },
+        containerColor = RondaSafeColors.Background,
+        topBar = { AppTopBar("Programações de rondas", onBack = onBack) },
     ) { padding ->
-        Column(
-            Modifier.padding(padding).padding(16.dp).fillMaxSize(),
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = includeArchived, onCheckedChange = { includeArchived = it })
-                Spacer(Modifier.width(8.dp))
-                Text("Mostrar arquivadas")
-            }
-
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(templates, key = { it.id }) { template ->
-                    PatrolTemplateCard(template = template, onEdit = { onEdit(template) }, onChanged = ::reload)
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Rondas", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Navy)
+                        Text("Horários simples e todos os pontos incluídos.", color = RondaSafeColors.Muted)
+                    }
+                    Switch(checked = includeArchived, onCheckedChange = { includeArchived = it })
                 }
             }
+
+            item {
+                Button(
+                    onClick = onCreate,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text("+ Nova ronda", fontWeight = FontWeight.Bold) }
+            }
+
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (!loading && templates.isEmpty()) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = RondaSafeColors.BlueSoft,
+                    ) {
+                        Text(
+                            "Nenhuma ronda cadastrada ainda. Crie a primeira programação em poucos passos.",
+                            modifier = Modifier.padding(18.dp),
+                            color = RondaSafeColors.Navy,
+                        )
+                    }
+                }
+            }
+
+            items(templates, key = { it.id }) { template ->
+                PatrolTemplateCard(template = template, onEdit = { onEdit(template) }, onChanged = ::reload)
+            }
+            item { Spacer(Modifier.height(28.dp)) }
         }
     }
 }
@@ -90,35 +156,49 @@ private fun PatrolTemplateCard(
         checkpointCount = runCatching { PatrolRepository.listTemplateCheckpoints(template.id) }.getOrDefault(emptyList()).size
     }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(template.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(template.name, style = MaterialTheme.typography.titleLarge, color = RondaSafeColors.Text)
+                    val first = windows.firstOrNull()
+                    if (first != null) {
+                        Text(
+                            "${first.startTime.take(5)} – ${first.endTime.take(5)} • $checkpointCount pontos",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = RondaSafeColors.Muted,
+                        )
+                    }
+                }
                 AssistChip(onClick = {}, label = { Text(if (template.active) "Ativa" else "Arquivada") })
             }
-            template.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            Text("$checkpointCount pontos obrigatórios")
 
-            windows.forEach { window ->
-                val overnight = if (window.endTime.take(5) <= window.startTime.take(5)) " • termina no dia seguinte" else ""
+            if (windows.isNotEmpty()) {
                 Text(
-                    "${dayNames[window.dayOfWeek]} • ${window.startTime.take(5)} às ${window.endTime.take(5)} • tolerância ${window.lateToleranceMinutes} min$overnight",
+                    windows.joinToString(" • ") { dayNames[it.dayOfWeek].orEmpty() },
                     style = MaterialTheme.typography.bodySmall,
+                    color = RondaSafeColors.Muted,
                 )
             }
 
             if (template.active) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("Editar") }
-                    OutlinedButton(onClick = { confirmArchive = true }, modifier = Modifier.weight(1f)) { Text("Arquivar") }
-                }
+                Button(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("Editar programação") }
+                OutlinedButton(onClick = { confirmArchive = true }, modifier = Modifier.fillMaxWidth()) { Text("Arquivar ronda") }
             } else {
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        PatrolRepository.restoreTemplate(template.id)
-                        onChanged()
-                    }
-                }, modifier = Modifier.fillMaxWidth()) { Text("Restaurar") }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            PatrolRepository.restoreTemplate(template.id)
+                            onChanged()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Restaurar ronda") }
             }
         }
     }
@@ -142,6 +222,7 @@ private fun PatrolTemplateCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreatePatrolTemplateScreen(
     onBack: () -> Unit,
@@ -150,178 +231,219 @@ fun CreatePatrolTemplateScreen(
 ) {
     val scope = rememberCoroutineScope()
     val editing = template != null
-    var buildings by remember { mutableStateOf(emptyList<BuildingDto>()) }
-    var selectedBuildingId by remember { mutableStateOf<String?>(template?.buildingId) }
-    var checkpointOptions by remember { mutableStateOf(emptyList<PatrolCheckpointOption>()) }
-    var selectedCheckpointIds by remember { mutableStateOf(setOf<String>()) }
+    var buildingId by remember { mutableStateOf(template?.buildingId) }
+    var buildingName by remember { mutableStateOf("Condomínio") }
     var name by remember { mutableStateOf(template?.name.orEmpty()) }
-    var description by remember { mutableStateOf(template?.description.orEmpty()) }
+    var frequency by remember { mutableStateOf("TODOS") }
+    var shift by remember { mutableStateOf("NOITE") }
+    var startTime by remember { mutableStateOf("22:00") }
+    var endTime by remember { mutableStateOf("06:00") }
     var tolerance by remember { mutableStateOf("15") }
+    var showAdvanced by remember { mutableStateOf(false) }
+    var pointCount by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
-    var initialLoading by remember { mutableStateOf(editing) }
+    var initialLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var buildingMenu by remember { mutableStateOf(false) }
-    var loadedInitialSelection by remember { mutableStateOf(false) }
 
-    val days = remember {
-        mutableStateListOf(
-            *(1..7).map { day ->
-                PatrolDayConfig(day, enabled = !editing && day <= 5, startTime = "06:00", endTime = "08:00")
-            }.toTypedArray()
-        )
-    }
+    val customDays = remember { mutableStateListOf(1, 2, 3, 4, 5, 6, 7) }
 
     LaunchedEffect(template?.id) {
-        buildings = runCatching { AdminRepository.listBuildings() }.getOrDefault(emptyList())
-        if (selectedBuildingId == null) selectedBuildingId = buildings.firstOrNull()?.id
+        initialLoading = true
+        runCatching {
+            val condominium = AdminRepository.condominium()
+            buildingId = condominium.id
+            buildingName = condominium.name
+            pointCount = PatrolRepository.allActiveCheckpointIds(condominium.id).size
 
-        if (template != null) {
-            runCatching { PatrolRepository.loadForEdit(template) }
-                .onSuccess { edit ->
-                    val byDay = edit.windows.associateBy { it.dayOfWeek }
-                    days.indices.forEach { index ->
-                        val dayNumber = index + 1
-                        val window = byDay[dayNumber]
-                        days[index] = if (window == null) {
-                            PatrolDayConfig(dayNumber, false, "06:00", "08:00")
-                        } else {
-                            PatrolDayConfig(dayNumber, true, window.startTime.take(5), window.endTime.take(5))
-                        }
-                    }
-                    tolerance = edit.windows.firstOrNull()?.lateToleranceMinutes?.toString() ?: "15"
-                    selectedCheckpointIds = edit.checkpointIds
-                    loadedInitialSelection = true
+            if (template != null) {
+                val edit = PatrolRepository.loadForEdit(template)
+                val activeDays = edit.windows.map { it.dayOfWeek }.sorted()
+                frequency = when (activeDays) {
+                    listOf(1, 2, 3, 4, 5, 6, 7) -> "TODOS"
+                    listOf(1, 2, 3, 4, 5) -> "SEMANA"
+                    listOf(6, 7) -> "FIM_SEMANA"
+                    else -> "PERSONALIZADO"
                 }
-                .onFailure { error = it.message ?: "Não foi possível carregar a programação." }
-        } else {
-            loadedInitialSelection = true
-        }
+                customDays.clear()
+                customDays.addAll(activeDays)
+                edit.windows.firstOrNull()?.let { window ->
+                    startTime = window.startTime.take(5)
+                    endTime = window.endTime.take(5)
+                    tolerance = window.lateToleranceMinutes.toString()
+                    shift = when (startTime to endTime) {
+                        "06:00" to "14:00" -> "MANHA"
+                        "14:00" to "22:00" -> "TARDE"
+                        "22:00" to "06:00" -> "NOITE"
+                        else -> "PERSONALIZADO"
+                    }
+                }
+            }
+        }.onFailure { error = it.message ?: "Não foi possível preparar a ronda." }
         initialLoading = false
     }
 
-    LaunchedEffect(selectedBuildingId, loadedInitialSelection) {
-        val buildingId = selectedBuildingId ?: return@LaunchedEffect
-        checkpointOptions = runCatching { PatrolRepository.listCheckpointOptions(buildingId) }.getOrDefault(emptyList())
-        if (loadedInitialSelection && (!editing || buildingId != template?.buildingId)) {
-            selectedCheckpointIds = emptySet()
+    fun selectShift(value: String) {
+        shift = value
+        when (value) {
+            "MANHA" -> { startTime = "06:00"; endTime = "14:00" }
+            "TARDE" -> { startTime = "14:00"; endTime = "22:00" }
+            "NOITE" -> { startTime = "22:00"; endTime = "06:00" }
         }
     }
 
-    Scaffold(topBar = { AppTopBar(if (editing) "Editar ronda" else "Nova ronda", onBack = onBack) }) { padding ->
+    fun selectedDays(): List<Int> = when (frequency) {
+        "TODOS" -> (1..7).toList()
+        "SEMANA" -> (1..5).toList()
+        "FIM_SEMANA" -> listOf(6, 7)
+        else -> customDays.toList().sorted()
+    }
+
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { AppTopBar(if (editing) "Editar ronda" else "Nova ronda", onBack = onBack) },
+    ) { padding ->
         if (initialLoading) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@Scaffold
         }
 
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(),
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                if (editing) {
-                    Text(
-                        "As alterações valem para as próximas ocorrências. Rondas já executadas continuam preservadas no histórico.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = RondaSafeColors.BlueSoft,
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Todos os pontos entram automaticamente", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "$pointCount ponto(s) ativo(s) dos Blocos A e B serão incluídos nesta ronda.",
+                            color = RondaSafeColors.Muted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
+
             item {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nome da ronda") },
-                    placeholder = { Text("Ex.: Ronda Matinal") },
+                    placeholder = { Text("Ex.: Ronda Noturna") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-            }
-            item {
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Descrição (opcional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item {
-                Box {
-                    OutlinedButton(onClick = { buildingMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(buildings.firstOrNull { it.id == selectedBuildingId }?.name ?: "Selecione o prédio")
-                    }
-                    DropdownMenu(expanded = buildingMenu, onDismissRequest = { buildingMenu = false }) {
-                        buildings.forEach { building ->
-                            DropdownMenuItem(
-                                text = { Text(building.name) },
-                                onClick = {
-                                    selectedBuildingId = building.id
-                                    buildingMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                OutlinedTextField(
-                    value = tolerance,
-                    onValueChange = { tolerance = it.filter(Char::isDigit).take(4) },
-                    label = { Text("Tolerância para atraso (minutos)") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item { Text("Dias e horários", style = MaterialTheme.typography.titleMedium) }
-
-            items(days.size) { index ->
-                val day = days[index]
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = day.enabled,
-                                onCheckedChange = { checked -> days[index] = day.copy(enabled = checked) },
-                            )
-                            Text(dayNames[day.dayOfWeek] ?: "Dia")
-                        }
-                        if (day.enabled) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = day.startTime,
-                                    onValueChange = { days[index] = day.copy(startTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5)) },
-                                    label = { Text("Início") },
-                                    placeholder = { Text("06:00") },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                OutlinedTextField(
-                                    value = day.endTime,
-                                    onValueChange = { days[index] = day.copy(endTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5)) },
-                                    label = { Text("Fim") },
-                                    placeholder = { Text("08:00") },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            if (day.endTime <= day.startTime) {
-                                Text("Esta janela termina no dia seguinte.", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
             }
 
-            item { Text("Pontos obrigatórios", style = MaterialTheme.typography.titleMedium) }
-            if (checkpointOptions.isEmpty()) {
-                item { Text("Cadastre primeiro os locais e pontos de ronda deste prédio.") }
-            } else {
-                items(checkpointOptions, key = { it.checkpoint.id }) { option ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = option.checkpoint.id in selectedCheckpointIds,
-                            onCheckedChange = { checked ->
-                                selectedCheckpointIds = if (checked) selectedCheckpointIds + option.checkpoint.id
-                                else selectedCheckpointIds - option.checkpoint.id
-                            },
+            item {
+                Text("Turno", style = MaterialTheme.typography.titleMedium, color = RondaSafeColors.Navy)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("MANHA" to "Manhã", "TARDE" to "Tarde", "NOITE" to "Noite").forEach { (value, label) ->
+                        FilterChip(
+                            selected = shift == value,
+                            onClick = { selectShift(value) },
+                            label = { Text(label) },
                         )
-                        Text(option.label)
                     }
                 }
+            }
+
+            item {
+                Text("Frequência", style = MaterialTheme.typography.titleMedium, color = RondaSafeColors.Navy)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "TODOS" to "Todos os dias",
+                        "SEMANA" to "Seg a Sex",
+                        "FIM_SEMANA" to "Fim de semana",
+                        "PERSONALIZADO" to "Personalizar",
+                    ).forEach { (value, label) ->
+                        FilterChip(
+                            selected = frequency == value,
+                            onClick = { frequency = value },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+            }
+
+            if (frequency == "PERSONALIZADO") {
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        (1..7).forEach { day ->
+                            FilterChip(
+                                selected = day in customDays,
+                                onClick = {
+                                    if (day in customDays) customDays.remove(day) else customDays.add(day)
+                                },
+                                label = { Text(dayNames[day].orEmpty()) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = startTime,
+                        onValueChange = { startTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5); shift = "PERSONALIZADO" },
+                        label = { Text("Início") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = endTime,
+                        onValueChange = { endTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5); shift = "PERSONALIZADO" },
+                        label = { Text("Fim") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (endTime <= startTime) {
+                    Text("A ronda termina no dia seguinte.", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                }
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Opções avançadas", fontWeight = FontWeight.SemiBold)
+                                Text("Ajuste a tolerância de atraso se necessário.", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                            }
+                            Switch(checked = showAdvanced, onCheckedChange = { showAdvanced = it })
+                        }
+                        if (showAdvanced) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = tolerance,
+                                onValueChange = { tolerance = it.filter(Char::isDigit).take(4) },
+                                label = { Text("Tolerância (minutos)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    buildingName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RondaSafeColors.Muted,
+                )
             }
 
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -333,27 +455,32 @@ fun CreatePatrolTemplateScreen(
                             loading = true
                             error = null
                             runCatching {
+                                val id = requireNotNull(buildingId) { "Condomínio não configurado." }
+                                val days = selectedDays().map { day ->
+                                    PatrolDayConfig(day, true, startTime, endTime)
+                                }
                                 PatrolRepository.saveTemplate(
                                     templateId = template?.id,
-                                    buildingId = requireNotNull(selectedBuildingId) { "Selecione o prédio." },
+                                    buildingId = id,
                                     name = name,
-                                    description = description,
+                                    description = null,
                                     lateToleranceMinutes = tolerance.toIntOrNull() ?: 15,
-                                    days = days.toList(),
-                                    checkpointIds = selectedCheckpointIds.toList(),
+                                    days = days,
+                                    checkpointIds = emptyList(),
                                 )
                             }.onSuccess { onCreated() }
                                 .onFailure { error = it.message ?: "Não foi possível salvar a ronda." }
                             loading = false
                         }
                     },
-                    enabled = !loading && name.isNotBlank() && selectedBuildingId != null && selectedCheckpointIds.isNotEmpty() && days.any { it.enabled },
-                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loading && name.isNotBlank() && buildingId != null && selectedDays().isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text(if (loading) "Salvando..." else if (editing) "Salvar alterações" else "Criar ronda")
+                    Text(if (loading) "Salvando..." else if (editing) "Salvar alterações" else "Criar ronda", fontWeight = FontWeight.Bold)
                 }
             }
-            item { Spacer(Modifier.height(60.dp)) }
+            item { Spacer(Modifier.height(30.dp)) }
         }
     }
 }
