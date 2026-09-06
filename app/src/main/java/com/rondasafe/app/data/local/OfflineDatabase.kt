@@ -12,6 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "pending_events")
 data class PendingEventEntity(
@@ -22,7 +23,13 @@ data class PendingEventEntity(
     val monotonicMs: Long?,
     val attempts: Int = 0,
     val lastError: String? = null,
-)
+    val state: String = STATE_PENDING,
+) {
+    companion object {
+        const val STATE_PENDING = "PENDING"
+        const val STATE_FAILED_PERMANENT = "FAILED_PERMANENT"
+    }
+}
 
 @Entity(tableName = "offline_qr_tokens")
 data class OfflineQrTokenEntity(
@@ -88,17 +95,29 @@ interface OfflineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun enqueue(event: PendingEventEntity)
 
-    @Query("select * from pending_events order by createdAtLocal, rowid limit :limit")
+    @Query("select * from pending_events where state = 'PENDING' order by createdAtLocal, rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
 
-    @Query("select count(*) from pending_events")
+    @Query("select count(*) from pending_events where state = 'PENDING'")
     suspend fun pendingCount(): Int
+
+    @Query("select count(*) from pending_events where state = 'PENDING'")
+    fun pendingCountFlow(): Flow<Int>
+
+    @Query("select count(*) from pending_events where state = 'FAILED_PERMANENT'")
+    fun permanentFailureCountFlow(): Flow<Int>
+
+    @Query("select lastError from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc limit 1")
+    fun latestPermanentFailureFlow(): Flow<String?>
 
     @Query("delete from pending_events where clientEventId = :id")
     suspend fun markSynced(id: String)
 
     @Query("update pending_events set attempts = attempts + 1, lastError = :error where clientEventId = :id")
     suspend fun markFailed(id: String, error: String?)
+
+    @Query("update pending_events set attempts = attempts + 1, lastError = :error, state = 'FAILED_PERMANENT' where clientEventId = :id")
+    suspend fun markPermanentFailure(id: String, error: String?)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun cacheQr(tokens: List<OfflineQrTokenEntity>)
@@ -164,7 +183,7 @@ interface OfflineDao {
         LocalPatrolRunEntity::class,
         LocalVisitedCheckpointEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {
@@ -187,6 +206,12 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `pending_events` ADD COLUMN `state` TEXT NOT NULL DEFAULT 'PENDING'")
+            }
+        }
+
         fun get(context: Context): OfflineDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -194,7 +219,7 @@ abstract class OfflineDatabase : RoomDatabase() {
                     OfflineDatabase::class.java,
                     "rondasafe_offline.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
