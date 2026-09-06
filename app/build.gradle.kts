@@ -13,11 +13,15 @@ android {
         applicationId = "com.rondasafe.app"
         minSdk = 23
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
 
-        val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orNull ?: ""
-        val supabasePublishableKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orNull ?: ""
+        // Identificadores publicos do cliente Supabase. Podem ser sobrescritos por
+        // propriedades Gradle locais/CI. Nunca colocar secret/service_role aqui.
+        val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orNull
+            ?: "https://vnammkljeterezqtpvvm.supabase.co"
+        val supabasePublishableKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orNull
+            ?: "sb_publishable_iqJK7zGZAIBfJ75FMtPWzA_3Q-MrZjy"
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabasePublishableKey\"")
     }
