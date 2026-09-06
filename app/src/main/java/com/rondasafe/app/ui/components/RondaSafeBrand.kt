@@ -13,8 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -42,46 +40,56 @@ fun RondaSafeMark(
     Canvas(modifier = modifier.size(112.dp)) {
         val w = size.width
         val h = size.height
-        val stroke = size.minDimension * 0.055f
+        val radius = size.minDimension * 0.22f
 
-        val shield = Path().apply {
-            moveTo(w * 0.50f, h * 0.05f)
-            lineTo(w * 0.86f, h * 0.18f)
-            lineTo(w * 0.80f, h * 0.61f)
-            quadraticBezierTo(w * 0.75f, h * 0.76f, w * 0.50f, h * 0.91f)
-            quadraticBezierTo(w * 0.25f, h * 0.76f, w * 0.20f, h * 0.61f)
-            lineTo(w * 0.14f, h * 0.18f)
-            close()
-        }
-        drawPath(shield, color = shieldColor.copy(alpha = 0.16f))
-        drawPath(shield, color = shieldColor, style = Stroke(width = stroke))
-
-        val roof = Path().apply {
-            moveTo(w * 0.31f, h * 0.42f)
-            lineTo(w * 0.50f, h * 0.29f)
-            lineTo(w * 0.69f, h * 0.42f)
-        }
-        drawPath(roof, color = buildingColor, style = Stroke(width = stroke * 0.75f))
-
-        drawRect(
-            color = buildingColor,
-            topLeft = Offset(w * 0.34f, h * 0.42f),
-            size = Size(w * 0.32f, h * 0.28f),
-            style = Stroke(width = stroke * 0.7f),
+        drawRoundRect(
+            color = RondaSafeColors.NavyDark,
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+        )
+        drawRoundRect(
+            color = shieldColor.copy(alpha = 0.20f),
+            topLeft = Offset(w * 0.06f, h * 0.06f),
+            size = Size(w * 0.88f, h * 0.88f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius * 0.78f, radius * 0.78f),
         )
 
-        val windowSize = Size(w * 0.055f, h * 0.055f)
-        listOf(
-            Offset(w * 0.40f, h * 0.49f),
-            Offset(w * 0.545f, h * 0.49f),
-            Offset(w * 0.40f, h * 0.59f),
-            Offset(w * 0.545f, h * 0.59f),
-        ).forEach { drawRect(buildingColor, it, windowSize) }
+        fun building(left: Float, top: Float, right: Float, bottom: Float, columns: Int, rows: Int) {
+            drawRect(
+                color = buildingColor,
+                topLeft = Offset(w * left, h * top),
+                size = Size(w * (right - left), h * (bottom - top)),
+            )
+            val bw = w * (right - left)
+            val bh = h * (bottom - top)
+            val marginX = bw * 0.16f
+            val marginY = bh * 0.10f
+            val cellW = (bw - marginX * 2) / columns
+            val cellH = (bh - marginY * 2) / rows
+            for (r in 0 until rows) {
+                for (c in 0 until columns) {
+                    val windowW = cellW * 0.45f
+                    val windowH = cellH * 0.42f
+                    val x = w * left + marginX + c * cellW + (cellW - windowW) / 2
+                    val y = h * top + marginY + r * cellH + (cellH - windowH) / 2
+                    drawRect(
+                        color = RondaSafeColors.NavyDark,
+                        topLeft = Offset(x, y),
+                        size = Size(windowW, windowH),
+                    )
+                }
+            }
+        }
+
+        building(0.15f, 0.43f, 0.37f, 0.82f, columns = 2, rows = 5)
+        building(0.38f, 0.20f, 0.66f, 0.82f, columns = 3, rows = 8)
+        building(0.68f, 0.40f, 0.88f, 0.82f, columns = 2, rows = 5)
 
         drawRect(
             color = buildingColor,
-            topLeft = Offset(w * 0.465f, h * 0.625f),
-            size = Size(w * 0.07f, h * 0.075f),
+            topLeft = Offset(w * 0.45f, h * 0.14f),
+            size = Size(w * 0.14f, h * 0.06f),
         )
     }
 }
@@ -99,13 +107,13 @@ fun RondaSafeBrand(
         Text(
             text = "RondaSafe",
             style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = textColor,
         )
         if (showTagline) {
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "SEGURANÇA EM CADA PASSO",
+                text = "SEGURANÇA QUE MANTÉM O CONDOMÍNIO EM MOVIMENTO",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor.copy(alpha = 0.68f),
