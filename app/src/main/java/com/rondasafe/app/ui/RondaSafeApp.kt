@@ -68,7 +68,7 @@ fun RondaSafeApp() {
             onAdmin = { screen = if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) AppScreen.ADMIN_DASHBOARD else AppScreen.ADMIN_LOGIN },
         )
 
-        AppScreen.ADMIN_LOGIN -> AdminLoginScreen(onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD })
 
         AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
             onOpenLocations = { screen = AppScreen.LOCATIONS },
