@@ -14,6 +14,7 @@ fun AdminDashboardScreenV3(
     onOpenLocations: () -> Unit,
     onOpenGuards: () -> Unit,
     onOpenPatrols: () -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenAlerts: () -> Unit,
     onOpenDeviceProvision: () -> Unit,
     onLogout: () -> Unit,
@@ -27,6 +28,7 @@ fun AdminDashboardScreenV3(
             Text("RondaSafe", style = MaterialTheme.typography.headlineMedium)
             Text("Gestão do sistema", style = MaterialTheme.typography.bodyLarge)
             DashboardCardV3("Alertas", "Acompanhe atrasos, rondas incompletas, leituras suspeitas e falhas de sincronização.", onOpenAlerts)
+            DashboardCardV3("Histórico de Rondas", "Consulte rondas concluídas, atrasadas, incompletas e não realizadas.", onOpenHistory)
             DashboardCardV3("Locais e QR Codes", "Cadastre blocos, andares, pontos e QR Codes.", onOpenLocations)
             DashboardCardV3("Porteiros", "Cadastre porteiros, gere PIN temporário e redefina acessos.", onOpenGuards)
             DashboardCardV3(
