@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -14,10 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.rondasafe.app.data.model.GuardDto
 import com.rondasafe.app.data.repository.GuardRepository
+import com.rondasafe.app.ui.components.RondaSafeColors
 import io.ktor.http.ContentType
 import kotlinx.coroutines.launch
 
@@ -46,73 +49,97 @@ fun GuardsScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
+        containerColor = RondaSafeColors.Background,
         topBar = { AppTopBar("Porteiros", onBack) },
-        floatingActionButton = { FloatingActionButton(onClick = { showCreate = true }) { Text("+") } },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = includeArchived, onCheckedChange = { includeArchived = it })
-                Text("Mostrar arquivados")
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showCreate = true }) { Text("Novo porteiro") }
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Equipe da portaria", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                        Text("Cadastre, atualize foto e gerencie o acesso.", color = RondaSafeColors.Muted)
+                    }
+                    Switch(checked = includeArchived, onCheckedChange = { includeArchived = it })
+                }
             }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
+            item {
+                Button(
+                    onClick = { showCreate = true },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text("+ Novo porteiro", fontWeight = FontWeight.Bold) }
+            }
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
 
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(guards, key = { it.id }) { guard ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (!guard.photoUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = guard.photoUrl,
-                                        contentDescription = "Foto de ${guard.name}",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(56.dp).clip(CircleShape),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                }
-                                Column(Modifier.weight(1f)) {
-                                    Text(guard.name, style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        when {
-                                            !guard.active -> "Arquivado"
-                                            guard.pinState == "TEMPORARY" -> "PIN temporário • troca pendente"
-                                            guard.pinState == "PERSONAL" -> "PIN pessoal configurado"
-                                            else -> guard.pinState
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
+            items(guards, key = { it.id }) { guard ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (!guard.photoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = guard.photoUrl,
+                                    contentDescription = "Foto de ${guard.name}",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(62.dp).clip(RoundedCornerShape(16.dp)),
+                                )
+                            } else {
+                                Surface(modifier = Modifier.size(62.dp), shape = RoundedCornerShape(16.dp), color = RondaSafeColors.BlueSoft) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(guard.name.take(1).uppercase(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                                    }
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (guard.active) {
-                                    TextButton(onClick = { photoGuard = guard }) { Text(if (guard.photoUrl.isNullOrBlank()) "Adicionar foto" else "Alterar foto") }
-                                    TextButton(onClick = { confirmReset = guard }) { Text("Redefinir PIN") }
-                                    TextButton(onClick = { confirmArchive = guard }) { Text("Arquivar") }
-                                } else {
-                                    TextButton(onClick = {
-                                        scope.launch {
-                                            runCatching { GuardRepository.restore(guard.id) }
-                                                .onSuccess { refresh++ }
-                                                .onFailure { error = it.message }
-                                        }
-                                    }) { Text("Restaurar") }
-                                }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(guard.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    when {
+                                        !guard.active -> "Arquivado"
+                                        guard.pinState == "TEMPORARY" -> "PIN temporário • troca pendente"
+                                        guard.pinState == "PERSONAL" -> "PIN pessoal configurado"
+                                        else -> guard.pinState
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RondaSafeColors.Muted,
+                                )
                             }
+                        }
+
+                        if (guard.active) {
+                            OutlinedButton(onClick = { photoGuard = guard }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (guard.photoUrl.isNullOrBlank()) "Adicionar foto" else "Alterar foto")
+                            }
+                            OutlinedButton(onClick = { confirmReset = guard }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Redefinir PIN")
+                            }
+                            OutlinedButton(
+                                onClick = { confirmArchive = guard },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Danger),
+                            ) { Text("Arquivar porteiro") }
+                        } else {
+                            OutlinedButton(onClick = {
+                                scope.launch {
+                                    runCatching { GuardRepository.restore(guard.id) }
+                                        .onSuccess { refresh++ }
+                                        .onFailure { error = it.message }
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Restaurar porteiro") }
                         }
                     }
                 }
             }
+            item { Spacer(Modifier.height(20.dp)) }
         }
     }
 
@@ -185,8 +212,10 @@ fun GuardsScreen(onBack: () -> Unit) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Porteiro: $tempPinGuardName")
-                    Text(pin, style = MaterialTheme.typography.headlineMedium)
-                    Text("Este PIN é exibido somente agora. Anote ou informe ao porteiro. No primeiro acesso ele será obrigado a criar um PIN pessoal.")
+                    Surface(shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
+                        Text(pin, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                    }
+                    Text("Este PIN aparece somente agora. Informe ao porteiro; no primeiro acesso ele criará um PIN pessoal.")
                 }
             },
             confirmButton = { Button(onClick = { tempPin = null }) { Text("Já anotei") } },
@@ -211,12 +240,12 @@ private fun NewGuardDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Novo porteiro") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
-                OutlinedButton(onClick = { launcher.launch("image/*") }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedButton(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (photoUri == null) "Selecionar foto (opcional)" else "Foto selecionada • trocar")
                 }
-                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall)
+                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -262,8 +291,8 @@ private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: ()
         title = { Text("Foto de ${guard.name}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { launcher.launch("image/*") }) { Text(if (uri == null) "Escolher foto" else "Foto selecionada • trocar") }
-                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) { Text(if (uri == null) "Escolher foto" else "Foto selecionada • trocar") }
+                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
