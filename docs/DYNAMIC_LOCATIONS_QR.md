@@ -15,9 +15,10 @@ O administrador poderá:
 - visualizar e compartilhar o QR gerado para impressão;
 - substituir/rotacionar o QR de um ponto;
 - revogar um QR antigo;
-- desativar ou excluir logicamente um ponto;
-- desativar ou excluir logicamente um andar;
+- arquivar blocos, andares e pontos que não são mais utilizados;
 - consultar histórico de QR Codes antigos.
+
+O sistema **não terá exclusão física de locais pelo aplicativo administrativo**. Registros deixam de aparecer na operação normal quando arquivados, mas permanecem no banco para preservar histórico e auditoria.
 
 ## Hierarquia
 
@@ -53,39 +54,64 @@ O sistema não deve tratar um QR Code como se fosse o próprio andar.
 
 Essa separação permite trocar um QR sem apagar o ponto, o andar ou o histórico de rondas.
 
-## Troca de QR Code
+## Substituição de QR Code
 
-Fluxo recomendado no admin:
+A substituição é uma operação sensível e **nunca deve acontecer com um único toque**.
+
+Fluxo obrigatório no admin:
 
 1. Abrir o ponto de ronda.
 2. Tocar em **Substituir QR Code**.
-3. Confirmar a operação.
-4. O QR atual é marcado como revogado.
-5. Um novo token criptograficamente aleatório é criado.
-6. O app gera a imagem do novo QR.
-7. O QR antigo deixa de ser válido para novas rondas após a sincronização das regras.
-8. O histórico permanece preservado.
+3. Abrir uma caixa/modal de confirmação.
+4. Informar claramente que o QR atual será revogado e deixará de ser válido para novas rondas.
+5. Oferecer os botões **Cancelar** e **Substituir QR Code**.
+6. Nenhuma alteração é realizada ao tocar em **Cancelar** ou fechar a confirmação.
+7. Somente após confirmação explícita o QR atual é marcado como revogado.
+8. Um novo token criptograficamente aleatório é criado.
+9. O app gera a imagem do novo QR.
+10. O histórico do QR anterior permanece preservado.
 
-Não é necessário excluir o andar para trocar um QR Code.
+### Confirmação recomendada
 
-## Exclusão e auditoria
+```text
+Substituir QR Code?
 
-Por segurança e rastreabilidade, registros que já possuem histórico de ronda não devem ser apagados fisicamente do banco.
+O QR Code atual deste ponto será revogado e não poderá mais ser usado em novas rondas após a atualização dos dispositivos.
 
-A interface poderá mostrar a ação **Excluir**, mas internamente o comportamento padrão será arquivamento/soft delete:
+O histórico de leituras anteriores será preservado.
+
+[ Cancelar ]   [ Substituir QR Code ]
+```
+
+O botão de confirmação deve ter aparência de ação sensível e não deve ser acionado automaticamente ao abrir a janela.
+
+Após a substituição, exibir mensagem de sucesso e o novo QR Code:
+
+```text
+QR Code substituído com sucesso.
+O código anterior foi revogado.
+```
+
+Não é necessário arquivar ou recriar o andar/ponto para trocar um QR Code.
+
+## Arquivamento e auditoria
+
+A regra oficial do RondaSafe é **arquivar, não excluir**.
+
+Quando um bloco, andar ou ponto deixa de ser utilizado:
 
 - `active = false`
 - `archived_at`
 - `archived_by`
 
-Um registro poderá ser apagado fisicamente apenas se nunca tiver sido referenciado por ronda, leitura ou auditoria.
+O item arquivado:
 
-Isso vale para:
+- não aparece na seleção normal de novas rondas;
+- não pode receber novos QR Codes ou novas leituras enquanto estiver arquivado;
+- continua disponível em consultas históricas e auditoria;
+- preserva todas as rondas, leituras e QR Codes anteriormente associados.
 
-- blocos;
-- andares;
-- pontos de ronda;
-- QR Codes.
+A interface administrativa deve usar o termo **Arquivar**, e não **Excluir**, para deixar claro que o histórico não será perdido.
 
 QR Codes antigos devem ser preservados como `REVOKED` para que uma tentativa de leitura futura seja identificada como token revogado, e não apenas como QR desconhecido.
 
@@ -130,6 +156,7 @@ Opcional para o MVP, mas recomendado para permitir expansão futura para mais de
 - `active`
 - `created_at`
 - `archived_at nullable`
+- `archived_by nullable`
 
 ### `blocks`
 
@@ -140,6 +167,7 @@ Opcional para o MVP, mas recomendado para permitir expansão futura para mais de
 - `active`
 - `created_at`
 - `archived_at nullable`
+- `archived_by nullable`
 
 ### `floors`
 
@@ -150,6 +178,7 @@ Opcional para o MVP, mas recomendado para permitir expansão futura para mais de
 - `active`
 - `created_at`
 - `archived_at nullable`
+- `archived_by nullable`
 
 Exemplos de `name`: `Garagem`, `Térreo`, `Play`, `1º andar`, `11º andar`.
 
@@ -163,6 +192,7 @@ Exemplos de `name`: `Garagem`, `Térreo`, `Play`, `1º andar`, `11º andar`.
 - `active`
 - `created_at`
 - `archived_at nullable`
+- `archived_by nullable`
 
 Exemplos: `Hall dos elevadores`, `Escada de emergência`, `Entrada da garagem`.
 
@@ -223,7 +253,7 @@ Ações:
 - Novo andar
 - Novo ponto
 - Editar
-- Arquivar/Excluir
+- Arquivar
 
 ### Detalhe do ponto
 
@@ -255,8 +285,11 @@ Ações:
 3. O administrador consegue criar dois ou mais pontos no mesmo andar.
 4. Cada ponto consegue possuir um QR ativo próprio.
 5. O próprio APK gera e exibe o QR após criação do token no backend.
-6. Ao substituir um QR, o QR anterior fica revogado e o histórico permanece.
-7. Trocar um QR não apaga o andar nem o ponto.
-8. Um andar/ponto com histórico pode ser arquivado, mas seu histórico não é perdido.
-9. Programações de ronda utilizam pontos cadastrados dinamicamente.
-10. A tela de ronda mostra progresso `visitados / obrigatórios` de forma dinâmica.
+6. Ao tocar em **Substituir QR Code**, nenhuma mudança ocorre antes de uma confirmação explícita.
+7. Ao cancelar a confirmação de substituição, o QR atual continua exatamente como estava.
+8. Após confirmar a substituição, o QR anterior fica revogado e o histórico permanece.
+9. Trocar um QR não arquiva nem recria o andar ou o ponto.
+10. Blocos, andares e pontos são arquivados, nunca excluídos fisicamente pelo APK.
+11. Um item arquivado permanece disponível em histórico e auditoria.
+12. Programações de ronda utilizam pontos cadastrados dinamicamente.
+13. A tela de ronda mostra progresso `visitados / obrigatórios` de forma dinâmica.
