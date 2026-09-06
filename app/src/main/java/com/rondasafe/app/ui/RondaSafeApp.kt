@@ -131,7 +131,14 @@ fun RondaSafeApp() {
         )
         AppScreen.PATROL_FINISHED -> PatrolFinishedScreen(
             result = requireNotNull(finishResult),
-            onDone = { run = null; activePatrol = null; finishResult = null; screen = AppScreen.AVAILABLE_PATROLS },
+            onDone = {
+                run = null
+                activePatrol = null
+                finishResult = null
+                shift = null
+                selectedGuard = null
+                screen = AppScreen.GUARD_SELECTION
+            },
         )
     }
 }
