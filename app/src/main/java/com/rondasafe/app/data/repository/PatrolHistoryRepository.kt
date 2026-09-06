@@ -1,13 +1,13 @@
 package com.rondasafe.app.data.repository
 
 import com.rondasafe.app.data.model.PatrolHistoryItemDto
-import com.rondasafe.app.data.model.PatrolHistoryParams
 import com.rondasafe.app.data.model.PatrolHistoryPointDto
-import com.rondasafe.app.data.model.PatrolHistoryPointsParams
 import com.rondasafe.app.data.remote.SupabaseProvider
 import io.github.jan.supabase.postgrest.postgrest
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 object PatrolHistoryRepository {
     private val client get() = SupabaseProvider.client
@@ -21,27 +21,31 @@ object PatrolHistoryRepository {
         floorId: String? = null,
     ): List<PatrolHistoryItemDto> {
         val now = Instant.now()
+        val parameters = buildJsonObject {
+            put("p_from", now.minus(days.toLong(), ChronoUnit.DAYS).toString())
+            put("p_to", now.toString())
+            status?.let { put("p_status", it) }
+            guardId?.let { put("p_guard_id", it) }
+            buildingId?.let { put("p_building_id", it) }
+            blockId?.let { put("p_block_id", it) }
+            floorId?.let { put("p_floor_id", it) }
+            put("p_limit", 200)
+        }
         return client.postgrest.rpc(
             function = "admin_patrol_history",
-            parameters = PatrolHistoryParams(
-                from = now.minus(days.toLong(), ChronoUnit.DAYS).toString(),
-                to = now.toString(),
-                status = status,
-                guardId = guardId,
-                buildingId = buildingId,
-                blockId = blockId,
-                floorId = floorId,
-            ),
+            parameters = parameters,
         ).decodeList()
     }
 
-    suspend fun points(item: PatrolHistoryItemDto): List<PatrolHistoryPointDto> =
-        client.postgrest.rpc(
+    suspend fun points(item: PatrolHistoryItemDto): List<PatrolHistoryPointDto> {
+        val parameters = buildJsonObject {
+            item.patrolRunId?.let { put("p_run_id", it) }
+            if (item.patrolRunId == null) put("p_patrol_template_id", item.patrolTemplateId)
+            put("p_scheduled_for", item.scheduledFor)
+        }
+        return client.postgrest.rpc(
             function = "admin_patrol_history_points",
-            parameters = PatrolHistoryPointsParams(
-                runId = item.patrolRunId,
-                patrolTemplateId = if (item.patrolRunId == null) item.patrolTemplateId else null,
-                scheduledFor = item.scheduledFor,
-            ),
+            parameters = parameters,
         ).decodeList()
+    }
 }
