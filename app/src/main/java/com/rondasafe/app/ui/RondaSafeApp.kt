@@ -24,6 +24,7 @@ enum class AppScreen {
     ADMIN_LOGIN,
     ADMIN_DASHBOARD,
     ALERTS,
+    PATROL_HISTORY,
     BUILDINGS,
     BLOCKS,
     FLOORS,
@@ -65,12 +66,14 @@ fun RondaSafeApp() {
             onOpenLocations = { screen = AppScreen.BUILDINGS },
             onOpenGuards = { screen = AppScreen.GUARDS },
             onOpenPatrols = { screen = AppScreen.PATROLS },
+            onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
             onOpenAlerts = { screen = AppScreen.ALERTS },
             onOpenDeviceProvision = { screen = AppScreen.DEVICE_PROVISION },
             onLogout = { screen = AppScreen.ENTRY; selection = AdminSelection() },
         )
 
         AppScreen.ALERTS -> AlertsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
 
         AppScreen.BUILDINGS -> BuildingsScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
