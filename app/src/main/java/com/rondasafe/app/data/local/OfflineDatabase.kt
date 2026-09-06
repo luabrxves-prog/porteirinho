@@ -24,18 +24,6 @@ data class PendingEventEntity(
     val lastError: String? = null,
 )
 
-@Entity(tableName = "offline_guard_access")
-data class OfflineGuardAccessEntity(
-    @PrimaryKey val guardId: String,
-    val guardName: String,
-    val verifierHash: String,
-    val verifierSalt: String,
-    val iterations: Int,
-    val pinState: String,
-    val credentialVersion: Int,
-    val cachedAt: String,
-)
-
 @Entity(tableName = "offline_qr_tokens")
 data class OfflineQrTokenEntity(
     @PrimaryKey val tokenHash: String,
@@ -100,7 +88,7 @@ interface OfflineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun enqueue(event: PendingEventEntity)
 
-    @Query("select * from pending_events order by createdAtLocal limit :limit")
+    @Query("select * from pending_events order by createdAtLocal, rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
 
     @Query("select count(*) from pending_events")
@@ -111,12 +99,6 @@ interface OfflineDao {
 
     @Query("update pending_events set attempts = attempts + 1, lastError = :error where clientEventId = :id")
     suspend fun markFailed(id: String, error: String?)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun cacheGuard(access: OfflineGuardAccessEntity)
-
-    @Query("select * from offline_guard_access where guardId = :guardId")
-    suspend fun guard(guardId: String): OfflineGuardAccessEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun cacheQr(tokens: List<OfflineQrTokenEntity>)
@@ -176,14 +158,13 @@ interface OfflineDao {
 @Database(
     entities = [
         PendingEventEntity::class,
-        OfflineGuardAccessEntity::class,
         OfflineQrTokenEntity::class,
         OfflinePatrolStateEntity::class,
         LocalShiftEntity::class,
         LocalPatrolRunEntity::class,
         LocalVisitedCheckpointEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {
@@ -200,6 +181,12 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `offline_guard_access`")
+            }
+        }
+
         fun get(context: Context): OfflineDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -207,7 +194,7 @@ abstract class OfflineDatabase : RoomDatabase() {
                     OfflineDatabase::class.java,
                     "rondasafe_offline.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
