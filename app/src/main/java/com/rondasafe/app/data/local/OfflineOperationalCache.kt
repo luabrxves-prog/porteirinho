@@ -18,13 +18,26 @@ import javax.crypto.spec.PBEKeySpec
 
 object OfflineOperationalCache {
     private const val CACHE_KEY = "portaria_operational_cache_v1"
+    private const val PIN_LOCK_KEY_PREFIX = "offline_pin_lock_v1_"
+    private const val MAX_PIN_ATTEMPTS = 5
+    private const val PIN_LOCKOUT_MS = 15 * 60 * 1000L
     private val json = Json { ignoreUnknownKeys = true }
+
+    sealed interface PinVerification {
+        data class Success(val guard: CachedGuardDto) : PinVerification
+        data class Invalid(val remainingAttempts: Int) : PinVerification
+        data class Locked(val lockedUntilEpochMs: Long) : PinVerification
+        data object RequiresConnection : PinVerification
+        data object GuardUnavailable : PinVerification
+    }
 
     data class QrMatch(
         val tokenHash: String,
         val checkpointId: String,
         val checkpointName: String,
     )
+
+    private data class PinAttemptState(val attempts: Int, val lockedUntilEpochMs: Long)
 
     fun save(context: Context, cache: PortariaCacheResponse) {
         OfflineCredentialVault.put(context, CACHE_KEY, json.encodeToString(cache))
@@ -47,11 +60,43 @@ object OfflineOperationalCache {
             )
         }
 
-    fun verifyPin(context: Context, guardId: String, pin: String): CachedGuardDto? {
-        val guard = load(context)?.guards?.firstOrNull { it.id == guardId } ?: return null
-        if (pin.length != 6 || pin.any { !it.isDigit() }) return null
-        val candidate = pbkdf2Hex(pin, guard.credential.pinSalt, guard.credential.iterations)
-        return guard.takeIf { constantTimeEquals(candidate, guard.credential.pinHash) }
+    fun verifyPin(context: Context, guardId: String, pin: String): PinVerification {
+        val guard = load(context)?.guards?.firstOrNull { it.id == guardId }
+            ?: return PinVerification.GuardUnavailable
+        if (guard.credential.mustChangePin) return PinVerification.RequiresConnection
+
+        val now = System.currentTimeMillis()
+        var state = loadPinAttemptState(context, guardId)
+        if (state.lockedUntilEpochMs > now) return PinVerification.Locked(state.lockedUntilEpochMs)
+        if (state.lockedUntilEpochMs > 0L) {
+            clearPinLockout(context, guardId)
+            state = PinAttemptState(0, 0L)
+        }
+
+        val validFormat = pin.length == 6 && pin.all(Char::isDigit)
+        val matches = validFormat && runCatching {
+            val candidate = pbkdf2Hex(pin, guard.credential.pinSalt, guard.credential.iterations)
+            constantTimeEquals(candidate, guard.credential.pinHash)
+        }.getOrDefault(false)
+
+        if (matches) {
+            clearPinLockout(context, guardId)
+            return PinVerification.Success(guard)
+        }
+
+        val attempts = state.attempts + 1
+        if (attempts >= MAX_PIN_ATTEMPTS) {
+            val lockedUntil = now + PIN_LOCKOUT_MS
+            savePinAttemptState(context, guardId, PinAttemptState(MAX_PIN_ATTEMPTS, lockedUntil))
+            return PinVerification.Locked(lockedUntil)
+        }
+
+        savePinAttemptState(context, guardId, PinAttemptState(attempts, 0L))
+        return PinVerification.Invalid(MAX_PIN_ATTEMPTS - attempts)
+    }
+
+    fun clearPinLockout(context: Context, guardId: String) {
+        OfflineCredentialVault.remove(context, PIN_LOCK_KEY_PREFIX + guardId)
     }
 
     fun availablePatrols(context: Context, guardId: String): List<AvailablePatrolDto> {
@@ -84,7 +129,7 @@ object OfflineOperationalCache {
                 else -> now.toLocalDate().minusDays(1)
             }
             val scheduled = LocalDateTime.of(scheduledDate, start).atZone(zone)
-            val availableUntilDate = if (end > start || localNow.isBefore(start)) scheduledDate else scheduledDate.plusDays(1)
+            val availableUntilDate = if (end > start) scheduledDate else scheduledDate.plusDays(1)
             val availableUntil = LocalDateTime.of(availableUntilDate, end).atZone(zone)
             val required = requiredCheckpointIds(context, patrol.id).size
 
@@ -121,6 +166,24 @@ object OfflineOperationalCache {
         OfflineCredentialVault.remove(context, CACHE_KEY)
     }
 
+    private fun loadPinAttemptState(context: Context, guardId: String): PinAttemptState {
+        val raw = OfflineCredentialVault.get(context, PIN_LOCK_KEY_PREFIX + guardId) ?: return PinAttemptState(0, 0L)
+        val parts = raw.split('|')
+        if (parts.size != 2) return PinAttemptState(0, 0L)
+        return PinAttemptState(
+            attempts = parts[0].toIntOrNull()?.coerceIn(0, MAX_PIN_ATTEMPTS) ?: 0,
+            lockedUntilEpochMs = parts[1].toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+        )
+    }
+
+    private fun savePinAttemptState(context: Context, guardId: String, state: PinAttemptState) {
+        OfflineCredentialVault.put(
+            context,
+            PIN_LOCK_KEY_PREFIX + guardId,
+            "${state.attempts}|${state.lockedUntilEpochMs}",
+        )
+    }
+
     private fun parseTime(value: String): LocalTime = LocalTime.parse(value.take(8))
 
     private fun pbkdf2Hex(pin: String, saltHex: String, iterations: Int): String {
@@ -135,8 +198,12 @@ object OfflineOperationalCache {
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
-    private fun hexToBytes(value: String): ByteArray =
-        value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    private fun hexToBytes(value: String): ByteArray {
+        require(value.length % 2 == 0 && value.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+            "Formato de salt inválido."
+        }
+        return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
 
     private fun constantTimeEquals(a: String, b: String): Boolean =
         MessageDigest.isEqual(a.lowercase().toByteArray(), b.lowercase().toByteArray())
