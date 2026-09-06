@@ -112,11 +112,11 @@ object AdminRepository {
         invokeQr("replace", checkpointId)
 
     suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
-        client.from("alerts").select {
-            filter {
-                if (!includeResolved) isExact("resolved_at", null)
-            }
-        }.decodeList<AlertDto>().sortedByDescending { it.createdAt }
+        client.from("alerts")
+            .select()
+            .decodeList<AlertDto>()
+            .filter { includeResolved || it.resolvedAt == null }
+            .sortedByDescending { it.createdAt }
 
     suspend fun markAlertRead(alertId: String) {
         client.from("alerts").update(AlertReadDto(readAt = Instant.now().toString())) {
