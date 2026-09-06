@@ -27,6 +27,7 @@ private val dayNames = mapOf(
 fun PatrolTemplatesScreen(
     onBack: () -> Unit,
     onCreate: () -> Unit,
+    onEdit: (PatrolTemplateDto) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var includeArchived by remember { mutableStateOf(false) }
@@ -66,7 +67,7 @@ fun PatrolTemplatesScreen(
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(templates, key = { it.id }) { template ->
-                    PatrolTemplateCard(template = template, onChanged = ::reload)
+                    PatrolTemplateCard(template = template, onEdit = { onEdit(template) }, onChanged = ::reload)
                 }
             }
         }
@@ -76,6 +77,7 @@ fun PatrolTemplatesScreen(
 @Composable
 private fun PatrolTemplateCard(
     template: PatrolTemplateDto,
+    onEdit: () -> Unit,
     onChanged: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -83,7 +85,7 @@ private fun PatrolTemplateCard(
     var checkpointCount by remember(template.id) { mutableStateOf(0) }
     var confirmArchive by remember { mutableStateOf(false) }
 
-    LaunchedEffect(template.id) {
+    LaunchedEffect(template.id, template.active) {
         windows = runCatching { PatrolRepository.listWindows(template.id) }.getOrDefault(emptyList())
         checkpointCount = runCatching { PatrolRepository.listTemplateCheckpoints(template.id) }.getOrDefault(emptyList()).size
     }
@@ -91,31 +93,32 @@ private fun PatrolTemplateCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(template.name, style = MaterialTheme.typography.titleMedium)
-                AssistChip(
-                    onClick = {},
-                    label = { Text(if (template.active) "Ativa" else "Arquivada") },
-                )
+                Text(template.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                AssistChip(onClick = {}, label = { Text(if (template.active) "Ativa" else "Arquivada") })
             }
             template.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             Text("$checkpointCount pontos obrigatórios")
 
             windows.forEach { window ->
+                val overnight = if (window.endTime.take(5) <= window.startTime.take(5)) " • termina no dia seguinte" else ""
                 Text(
-                    "${dayNames[window.dayOfWeek]} • ${window.startTime.take(5)} às ${window.endTime.take(5)} • tolerância ${window.lateToleranceMinutes} min",
+                    "${dayNames[window.dayOfWeek]} • ${window.startTime.take(5)} às ${window.endTime.take(5)} • tolerância ${window.lateToleranceMinutes} min$overnight",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
 
             if (template.active) {
-                OutlinedButton(onClick = { confirmArchive = true }) { Text("Arquivar") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("Editar") }
+                    OutlinedButton(onClick = { confirmArchive = true }, modifier = Modifier.weight(1f)) { Text("Arquivar") }
+                }
             } else {
                 OutlinedButton(onClick = {
                     scope.launch {
                         PatrolRepository.restoreTemplate(template.id)
                         onChanged()
                     }
-                }) { Text("Restaurar") }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Restaurar") }
             }
         }
     }
@@ -124,7 +127,7 @@ private fun PatrolTemplateCard(
         AlertDialog(
             onDismissRequest = { confirmArchive = false },
             title = { Text("Arquivar ronda?") },
-            text = { Text("Ela deixará de aparecer para novas programações. O histórico será preservado.") },
+            text = { Text("Ela deixará de aparecer para novas execuções. O histórico será preservado.") },
             confirmButton = {
                 Button(onClick = {
                     confirmArchive = false
@@ -143,44 +146,85 @@ private fun PatrolTemplateCard(
 fun CreatePatrolTemplateScreen(
     onBack: () -> Unit,
     onCreated: () -> Unit,
+    template: PatrolTemplateDto? = null,
 ) {
     val scope = rememberCoroutineScope()
+    val editing = template != null
     var buildings by remember { mutableStateOf(emptyList<BuildingDto>()) }
-    var selectedBuildingId by remember { mutableStateOf<String?>(null) }
+    var selectedBuildingId by remember { mutableStateOf<String?>(template?.buildingId) }
     var checkpointOptions by remember { mutableStateOf(emptyList<PatrolCheckpointOption>()) }
     var selectedCheckpointIds by remember { mutableStateOf(setOf<String>()) }
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(template?.name.orEmpty()) }
+    var description by remember { mutableStateOf(template?.description.orEmpty()) }
     var tolerance by remember { mutableStateOf("15") }
     var loading by remember { mutableStateOf(false) }
+    var initialLoading by remember { mutableStateOf(editing) }
     var error by remember { mutableStateOf<String?>(null) }
     var buildingMenu by remember { mutableStateOf(false) }
+    var loadedInitialSelection by remember { mutableStateOf(false) }
 
     val days = remember {
         mutableStateListOf(
-            * (1..7).map { day ->
-                PatrolDayConfig(day, enabled = day <= 5, startTime = "06:00", endTime = "08:00")
+            *(1..7).map { day ->
+                PatrolDayConfig(day, enabled = !editing && day <= 5, startTime = "06:00", endTime = "08:00")
             }.toTypedArray()
         )
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(template?.id) {
         buildings = runCatching { AdminRepository.listBuildings() }.getOrDefault(emptyList())
-        selectedBuildingId = buildings.firstOrNull()?.id
+        if (selectedBuildingId == null) selectedBuildingId = buildings.firstOrNull()?.id
+
+        if (template != null) {
+            runCatching { PatrolRepository.loadForEdit(template) }
+                .onSuccess { edit ->
+                    val byDay = edit.windows.associateBy { it.dayOfWeek }
+                    days.indices.forEach { index ->
+                        val dayNumber = index + 1
+                        val window = byDay[dayNumber]
+                        days[index] = if (window == null) {
+                            PatrolDayConfig(dayNumber, false, "06:00", "08:00")
+                        } else {
+                            PatrolDayConfig(dayNumber, true, window.startTime.take(5), window.endTime.take(5))
+                        }
+                    }
+                    tolerance = edit.windows.firstOrNull()?.lateToleranceMinutes?.toString() ?: "15"
+                    selectedCheckpointIds = edit.checkpointIds
+                    loadedInitialSelection = true
+                }
+                .onFailure { error = it.message ?: "Não foi possível carregar a programação." }
+        } else {
+            loadedInitialSelection = true
+        }
+        initialLoading = false
     }
 
-    LaunchedEffect(selectedBuildingId) {
-        checkpointOptions = selectedBuildingId?.let {
-            runCatching { PatrolRepository.listCheckpointOptions(it) }.getOrDefault(emptyList())
-        } ?: emptyList()
-        selectedCheckpointIds = emptySet()
+    LaunchedEffect(selectedBuildingId, loadedInitialSelection) {
+        val buildingId = selectedBuildingId ?: return@LaunchedEffect
+        checkpointOptions = runCatching { PatrolRepository.listCheckpointOptions(buildingId) }.getOrDefault(emptyList())
+        if (loadedInitialSelection && (!editing || buildingId != template?.buildingId)) {
+            selectedCheckpointIds = emptySet()
+        }
     }
 
-    Scaffold(topBar = { AppTopBar("Nova ronda", onBack = onBack) }) { padding ->
+    Scaffold(topBar = { AppTopBar(if (editing) "Editar ronda" else "Nova ronda", onBack = onBack) }) { padding ->
+        if (initialLoading) {
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            return@Scaffold
+        }
+
         LazyColumn(
             modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            item {
+                if (editing) {
+                    Text(
+                        "As alterações valem para as próximas ocorrências. Rondas já executadas continuam preservadas no histórico.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             item {
                 OutlinedTextField(
                     value = name,
@@ -241,18 +285,21 @@ fun CreatePatrolTemplateScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = day.startTime,
-                                    onValueChange = { days[index] = day.copy(startTime = it.take(5)) },
+                                    onValueChange = { days[index] = day.copy(startTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5)) },
                                     label = { Text("Início") },
                                     placeholder = { Text("06:00") },
                                     modifier = Modifier.weight(1f),
                                 )
                                 OutlinedTextField(
                                     value = day.endTime,
-                                    onValueChange = { days[index] = day.copy(endTime = it.take(5)) },
+                                    onValueChange = { days[index] = day.copy(endTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5)) },
                                     label = { Text("Fim") },
                                     placeholder = { Text("08:00") },
                                     modifier = Modifier.weight(1f),
                                 )
+                            }
+                            if (day.endTime <= day.startTime) {
+                                Text("Esta janela termina no dia seguinte.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -268,11 +315,8 @@ fun CreatePatrolTemplateScreen(
                         Checkbox(
                             checked = option.checkpoint.id in selectedCheckpointIds,
                             onCheckedChange = { checked ->
-                                selectedCheckpointIds = if (checked) {
-                                    selectedCheckpointIds + option.checkpoint.id
-                                } else {
-                                    selectedCheckpointIds - option.checkpoint.id
-                                }
+                                selectedCheckpointIds = if (checked) selectedCheckpointIds + option.checkpoint.id
+                                else selectedCheckpointIds - option.checkpoint.id
                             },
                         )
                         Text(option.label)
@@ -289,7 +333,8 @@ fun CreatePatrolTemplateScreen(
                             loading = true
                             error = null
                             runCatching {
-                                PatrolRepository.createTemplate(
+                                PatrolRepository.saveTemplate(
+                                    templateId = template?.id,
                                     buildingId = requireNotNull(selectedBuildingId) { "Selecione o prédio." },
                                     name = name,
                                     description = description,
@@ -298,14 +343,14 @@ fun CreatePatrolTemplateScreen(
                                     checkpointIds = selectedCheckpointIds.toList(),
                                 )
                             }.onSuccess { onCreated() }
-                                .onFailure { error = it.message ?: "Não foi possível criar a ronda." }
+                                .onFailure { error = it.message ?: "Não foi possível salvar a ronda." }
                             loading = false
                         }
                     },
-                    enabled = !loading && name.isNotBlank() && selectedBuildingId != null,
+                    enabled = !loading && name.isNotBlank() && selectedBuildingId != null && selectedCheckpointIds.isNotEmpty() && days.any { it.enabled },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (loading) "Salvando..." else "Criar ronda")
+                    Text(if (loading) "Salvando..." else if (editing) "Salvar alterações" else "Criar ronda")
                 }
             }
             item { Spacer(Modifier.height(60.dp)) }
