@@ -94,7 +94,7 @@ fun RondaSafeApp() {
                 screen = AppScreen.CHECKPOINTS
             },
         )
-        AppScreen.CHECKPOINTS -> CheckpointsScreen(
+        AppScreen.CHECKPOINTS -> SimplifiedCheckpointsScreen(
             floor = requireNotNull(selection.floor),
             onBack = { screen = AppScreen.LOCATIONS },
             onSelect = { selection = selection.copy(checkpoint = it); screen = AppScreen.CHECKPOINT_DETAIL },
