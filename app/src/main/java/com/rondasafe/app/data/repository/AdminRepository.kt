@@ -44,6 +44,37 @@ object AdminRepository {
             }
         }.decodeList<CheckpointDto>().sortedBy { it.sortOrder }
 
+    suspend fun condominium(): BuildingDto {
+        val existing = listBuildings().firstOrNull()
+        if (existing != null) {
+            ensureDefaultBlocks(existing.id)
+            return existing
+        }
+        val created = createBuilding("Condomínio Solar Carlos Gomes")
+        ensureDefaultBlocks(created.id)
+        return created
+    }
+
+    suspend fun defaultBlocks(): List<BlockDto> {
+        val building = condominium()
+        ensureDefaultBlocks(building.id)
+        return listBlocks(building.id)
+            .filter { it.name.equals("Bloco A", true) || it.name.equals("Bloco B", true) }
+            .sortedBy { if (it.name.equals("Bloco A", true)) 1 else 2 }
+    }
+
+    suspend fun ensureDefaultBlocks(buildingId: String) {
+        val existing = listBlocks(buildingId, includeArchived = true)
+        val blockA = existing.firstOrNull { it.name.equals("Bloco A", true) }
+        val blockB = existing.firstOrNull { it.name.equals("Bloco B", true) }
+
+        if (blockA == null) createBlock(buildingId, "Bloco A")
+        else if (!blockA.active) restore("blocks", blockA.id)
+
+        if (blockB == null) createBlock(buildingId, "Bloco B")
+        else if (!blockB.active) restore("blocks", blockB.id)
+    }
+
     suspend fun createBuilding(name: String): BuildingDto {
         val adminId = currentAdminId()
         return client.from("buildings")
