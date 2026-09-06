@@ -1,9 +1,16 @@
 package com.rondasafe.app.ui
 
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AuthRepository
+import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.admin.*
+import com.rondasafe.app.ui.portaria.*
 
 data class AdminSelection(
     val building: BuildingDto? = null,
@@ -12,9 +19,10 @@ data class AdminSelection(
     val checkpoint: CheckpointDto? = null,
 )
 
-enum class AdminScreen {
-    LOGIN,
-    DASHBOARD,
+enum class AppScreen {
+    ENTRY,
+    ADMIN_LOGIN,
+    ADMIN_DASHBOARD,
     BUILDINGS,
     BLOCKS,
     FLOORS,
@@ -23,82 +31,128 @@ enum class AdminScreen {
     GUARDS,
     PATROLS,
     PATROL_CREATE,
+    DEVICE_PROVISION,
+    GUARD_SELECTION,
+    GUARD_PIN,
+    GUARD_CHANGE_PIN,
+    SHIFT_HOME,
+    AVAILABLE_PATROLS,
+    PATROL_SCANNER,
+    PATROL_FINISHED,
 }
 
 @Composable
 fun RondaSafeApp() {
-    var screen by remember {
-        mutableStateOf(if (AuthRepository.hasSession()) AdminScreen.DASHBOARD else AdminScreen.LOGIN)
-    }
+    var screen by remember { mutableStateOf(if (AuthRepository.hasSession()) AppScreen.ADMIN_DASHBOARD else AppScreen.ENTRY) }
     var selection by remember { mutableStateOf(AdminSelection()) }
+    var selectedGuard by remember { mutableStateOf<PortariaGuardDto?>(null) }
+    var shift by remember { mutableStateOf<ShiftDto?>(null) }
+    var activePatrol by remember { mutableStateOf<AvailablePatrolDto?>(null) }
+    var run by remember { mutableStateOf<PatrolRunDto?>(null) }
+    var finishResult by remember { mutableStateOf<FinishPatrolDto?>(null) }
 
     when (screen) {
-        AdminScreen.LOGIN -> AdminLoginScreen(
-            onLoginSuccess = { screen = AdminScreen.DASHBOARD },
+        AppScreen.ENTRY -> EntryScreen(
+            portariaEnabled = PortariaRepository.deviceCredential != null,
+            onPortaria = { screen = AppScreen.GUARD_SELECTION },
+            onAdmin = { screen = if (AuthRepository.hasSession()) AppScreen.ADMIN_DASHBOARD else AppScreen.ADMIN_LOGIN },
         )
 
-        AdminScreen.DASHBOARD -> AdminDashboardScreenV3(
-            onOpenLocations = { screen = AdminScreen.BUILDINGS },
-            onOpenGuards = { screen = AdminScreen.GUARDS },
-            onOpenPatrols = { screen = AdminScreen.PATROLS },
-            onLogout = {
-                screen = AdminScreen.LOGIN
-                selection = AdminSelection()
-            },
+        AppScreen.ADMIN_LOGIN -> AdminLoginScreen(onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD })
+
+        AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
+            onOpenLocations = { screen = AppScreen.BUILDINGS },
+            onOpenGuards = { screen = AppScreen.GUARDS },
+            onOpenPatrols = { screen = AppScreen.PATROLS },
+            onOpenDeviceProvision = { screen = AppScreen.DEVICE_PROVISION },
+            onLogout = { screen = AppScreen.ENTRY; selection = AdminSelection() },
         )
 
-        AdminScreen.BUILDINGS -> BuildingsScreen(
-            onBack = { screen = AdminScreen.DASHBOARD },
-            onSelect = {
-                selection = AdminSelection(building = it)
-                screen = AdminScreen.BLOCKS
-            },
+        AppScreen.BUILDINGS -> BuildingsScreen(
+            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+            onSelect = { selection = AdminSelection(building = it); screen = AppScreen.BLOCKS },
         )
-
-        AdminScreen.BLOCKS -> BlocksScreen(
+        AppScreen.BLOCKS -> BlocksScreen(
             building = requireNotNull(selection.building),
-            onBack = { screen = AdminScreen.BUILDINGS },
-            onSelect = {
-                selection = selection.copy(block = it, floor = null, checkpoint = null)
-                screen = AdminScreen.FLOORS
-            },
+            onBack = { screen = AppScreen.BUILDINGS },
+            onSelect = { selection = selection.copy(block = it, floor = null, checkpoint = null); screen = AppScreen.FLOORS },
         )
-
-        AdminScreen.FLOORS -> FloorsScreen(
+        AppScreen.FLOORS -> FloorsScreen(
             block = requireNotNull(selection.block),
-            onBack = { screen = AdminScreen.BLOCKS },
-            onSelect = {
-                selection = selection.copy(floor = it, checkpoint = null)
-                screen = AdminScreen.CHECKPOINTS
-            },
+            onBack = { screen = AppScreen.BLOCKS },
+            onSelect = { selection = selection.copy(floor = it, checkpoint = null); screen = AppScreen.CHECKPOINTS },
         )
-
-        AdminScreen.CHECKPOINTS -> CheckpointsScreen(
+        AppScreen.CHECKPOINTS -> CheckpointsScreen(
             floor = requireNotNull(selection.floor),
-            onBack = { screen = AdminScreen.FLOORS },
-            onSelect = {
-                selection = selection.copy(checkpoint = it)
-                screen = AdminScreen.CHECKPOINT_DETAIL
-            },
+            onBack = { screen = AppScreen.FLOORS },
+            onSelect = { selection = selection.copy(checkpoint = it); screen = AppScreen.CHECKPOINT_DETAIL },
         )
-
-        AdminScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
+        AppScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
             checkpoint = requireNotNull(selection.checkpoint),
-            onBack = { screen = AdminScreen.CHECKPOINTS },
+            onBack = { screen = AppScreen.CHECKPOINTS },
+        )
+        AppScreen.GUARDS -> GuardsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.PATROLS -> PatrolTemplatesScreen(
+            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+            onCreate = { screen = AppScreen.PATROL_CREATE },
+        )
+        AppScreen.PATROL_CREATE -> CreatePatrolTemplateScreen(
+            onBack = { screen = AppScreen.PATROLS },
+            onCreated = { screen = AppScreen.PATROLS },
+        )
+        AppScreen.DEVICE_PROVISION -> DeviceProvisionScreen(
+            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+            onProvisioned = { screen = AppScreen.ENTRY },
         )
 
-        AdminScreen.GUARDS -> GuardsScreen(
-            onBack = { screen = AdminScreen.DASHBOARD },
+        AppScreen.GUARD_SELECTION -> GuardSelectionScreen(
+            onGuardSelected = { selectedGuard = it; screen = AppScreen.GUARD_PIN },
+            onBack = { screen = AppScreen.ENTRY },
         )
+        AppScreen.GUARD_PIN -> GuardPinScreen(
+            guard = requireNotNull(selectedGuard),
+            onSuccess = { mustChange -> screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME },
+            onBack = { screen = AppScreen.GUARD_SELECTION },
+        )
+        AppScreen.GUARD_CHANGE_PIN -> ChangeGuardPinScreen(onChanged = { screen = AppScreen.SHIFT_HOME })
+        AppScreen.SHIFT_HOME -> ShiftHomeScreen(
+            onShiftStarted = { shift = it; screen = AppScreen.AVAILABLE_PATROLS },
+            onBack = { screen = AppScreen.GUARD_SELECTION },
+        )
+        AppScreen.AVAILABLE_PATROLS -> AvailablePatrolsScreen(
+            shift = requireNotNull(shift),
+            onStart = { patrol, patrolRun -> activePatrol = patrol; run = patrolRun; screen = AppScreen.PATROL_SCANNER },
+            onEndShift = { shift = null; selectedGuard = null; screen = AppScreen.GUARD_SELECTION },
+        )
+        AppScreen.PATROL_SCANNER -> PatrolScannerScreen(
+            run = requireNotNull(run),
+            patrolName = requireNotNull(activePatrol).patrolName,
+            onFinished = { finishResult = it; screen = AppScreen.PATROL_FINISHED },
+        )
+        AppScreen.PATROL_FINISHED -> PatrolFinishedScreen(
+            result = requireNotNull(finishResult),
+            onDone = { run = null; activePatrol = null; finishResult = null; screen = AppScreen.AVAILABLE_PATROLS },
+        )
+    }
+}
 
-        AdminScreen.PATROLS -> PatrolTemplatesScreen(
-            onBack = { screen = AdminScreen.DASHBOARD },
-            onCreate = { screen = AdminScreen.PATROL_CREATE },
-        )
-
-        AdminScreen.PATROL_CREATE -> CreatePatrolTemplateScreen(
-            onBack = { screen = AdminScreen.PATROLS },
-            onCreated = { screen = AdminScreen.PATROLS },
-        )
+@Composable
+private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmin: () -> Unit) {
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("RondaSafe", style = MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.height(32.dp))
+            Button(onClick = onPortaria, enabled = portariaEnabled, modifier = Modifier.fillMaxWidth()) { Text("Portaria") }
+            if (!portariaEnabled) {
+                Spacer(Modifier.height(8.dp))
+                Text("Este aparelho ainda não foi configurado como portaria.", style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(onClick = onAdmin, modifier = Modifier.fillMaxWidth()) { Text("Administrador") }
+        }
     }
 }
