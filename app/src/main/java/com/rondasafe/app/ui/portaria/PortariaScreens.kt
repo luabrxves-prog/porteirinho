@@ -12,11 +12,14 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -24,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil3.compose.AsyncImage
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -63,9 +67,23 @@ fun GuardSelectionScreen(onGuardSelected: (PortariaGuardDto) -> Unit, onBack: ()
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(guards, key = { it.id }) { guard ->
                     Card(onClick = { onGuardSelected(guard) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(guard.name, style = MaterialTheme.typography.titleMedium)
-                            Text(if (guard.pinState == "TEMPORARY") "Primeiro acesso" else "PIN pessoal")
+                        Row(
+                            Modifier.padding(16.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!guard.photoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = guard.photoUrl,
+                                    contentDescription = "Foto de ${guard.name}",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(58.dp).clip(CircleShape),
+                                )
+                                Spacer(Modifier.width(14.dp))
+                            }
+                            Column {
+                                Text(guard.name, style = MaterialTheme.typography.titleMedium)
+                                Text(if (guard.pinState == "TEMPORARY") "Primeiro acesso" else "PIN pessoal")
+                            }
                         }
                     }
                 }
