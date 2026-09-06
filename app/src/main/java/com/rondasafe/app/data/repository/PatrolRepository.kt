@@ -4,10 +4,20 @@ import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 
 object PatrolRepository {
     private val client get() = SupabaseProvider.client
+
+    data class PatrolEditData(
+        val template: PatrolTemplateDto,
+        val windows: List<PatrolScheduleWindowDto>,
+        val checkpointIds: Set<String>,
+    )
 
     private fun currentAdminId(): String =
         client.auth.currentUserOrNull()?.id
@@ -33,6 +43,12 @@ object PatrolRepository {
                 if (!includeArchived) eq("active", true)
             }
         }.decodeList()
+
+    suspend fun loadForEdit(template: PatrolTemplateDto): PatrolEditData = PatrolEditData(
+        template = template,
+        windows = listWindows(template.id),
+        checkpointIds = listTemplateCheckpoints(template.id).filter { it.required }.map { it.checkpointId }.toSet(),
+    )
 
     suspend fun listAssignments(windowId: String, includeArchived: Boolean = true): List<PatrolScheduleAssignmentDto> =
         client.from("patrol_schedule_assignments").select {
@@ -90,6 +106,47 @@ object PatrolRepository {
         return options
     }
 
+    suspend fun saveTemplate(
+        templateId: String? = null,
+        buildingId: String,
+        name: String,
+        description: String?,
+        lateToleranceMinutes: Int,
+        days: List<PatrolDayConfig>,
+        checkpointIds: List<String>,
+    ): String {
+        require(name.isNotBlank()) { "Informe um nome para a ronda." }
+        require(days.any { it.enabled }) { "Selecione ao menos um dia da semana." }
+        require(checkpointIds.isNotEmpty()) { "Selecione ao menos um ponto obrigatório." }
+        require(lateToleranceMinutes in 0..1440) { "Tolerância inválida." }
+
+        val enabledDays = days.filter { it.enabled }
+        enabledDays.forEach { day ->
+            require(day.startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido em ${day.dayOfWeek}." }
+            require(day.endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido em ${day.dayOfWeek}." }
+        }
+
+        val params = buildJsonObject {
+            if (templateId == null) put("p_template_id", null as String?) else put("p_template_id", templateId)
+            put("p_building_id", buildingId)
+            put("p_name", name.trim())
+            put("p_description", description?.trim()?.takeIf { it.isNotEmpty() })
+            put("p_late_tolerance_minutes", lateToleranceMinutes)
+            put("p_days", buildJsonArray {
+                enabledDays.forEach { day ->
+                    add(buildJsonObject {
+                        put("day_of_week", day.dayOfWeek)
+                        put("start_time", "${day.startTime}:00")
+                        put("end_time", "${day.endTime}:00")
+                    })
+                }
+            })
+            put("p_checkpoint_ids", buildJsonArray { checkpointIds.distinct().forEach(::add) })
+        }
+
+        return client.postgrest.rpc("save_patrol_template", params).decodeSingle<String>()
+    }
+
     suspend fun createTemplate(
         buildingId: String,
         name: String,
@@ -98,49 +155,15 @@ object PatrolRepository {
         days: List<PatrolDayConfig>,
         checkpointIds: List<String>,
     ): PatrolTemplateDto {
-        require(name.isNotBlank()) { "Informe um nome para a ronda." }
-        require(days.any { it.enabled }) { "Selecione ao menos um dia da semana." }
-        require(checkpointIds.isNotEmpty()) { "Selecione ao menos um ponto obrigatório." }
-        require(lateToleranceMinutes in 0..1440) { "Tolerância inválida." }
-
-        val adminId = currentAdminId()
-        val template = client.from("patrol_templates")
-            .insert(
-                CreatePatrolTemplateDto(
-                    buildingId = buildingId,
-                    name = name.trim(),
-                    description = description?.trim()?.takeIf { it.isNotEmpty() },
-                    createdBy = adminId,
-                )
-            ) { select() }
-            .decodeSingle<PatrolTemplateDto>()
-
-        days.filter { it.enabled }.forEach { day ->
-            require(day.startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido." }
-            require(day.endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido." }
-            client.from("patrol_schedule_windows").insert(
-                CreatePatrolScheduleWindowDto(
-                    patrolTemplateId = template.id,
-                    dayOfWeek = day.dayOfWeek,
-                    startTime = day.startTime,
-                    endTime = day.endTime,
-                    lateToleranceMinutes = lateToleranceMinutes,
-                    createdBy = adminId,
-                )
-            )
-        }
-
-        checkpointIds.distinct().forEach { checkpointId ->
-            client.from("patrol_template_checkpoints").insert(
-                CreatePatrolTemplateCheckpointDto(
-                    patrolTemplateId = template.id,
-                    checkpointId = checkpointId,
-                    createdBy = adminId,
-                )
-            )
-        }
-
-        return template
+        val id = saveTemplate(
+            buildingId = buildingId,
+            name = name,
+            description = description,
+            lateToleranceMinutes = lateToleranceMinutes,
+            days = days,
+            checkpointIds = checkpointIds,
+        )
+        return client.from("patrol_templates").select { filter { eq("id", id) } }.decodeSingle()
     }
 
     suspend fun archiveTemplate(templateId: String) {
