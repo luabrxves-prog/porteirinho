@@ -1,8 +1,13 @@
 package com.rondasafe.app.data.repository
 
 import android.content.Context
+import com.rondasafe.app.data.local.LocalPatrolRunEntity
+import com.rondasafe.app.data.local.LocalShiftEntity
+import com.rondasafe.app.data.local.LocalVisitedCheckpointEntity
+import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineOperationalCache
 import com.rondasafe.app.data.local.OfflineSyncWorker
+import com.rondasafe.app.data.local.PendingEventEntity
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.remote.SupabaseProvider
 import com.rondasafe.app.security.OfflineCredentialVault
@@ -10,6 +15,8 @@ import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.UUID
 
@@ -38,9 +45,7 @@ object PortariaRepository {
         appContext = context.applicationContext
         val id = OfflineCredentialVault.get(context, DEVICE_ID_KEY)
         val secret = OfflineCredentialVault.get(context, DEVICE_SECRET_KEY)
-        deviceCredential = if (!id.isNullOrBlank() && !secret.isNullOrBlank()) {
-            DeviceCredential(id, secret)
-        } else null
+        deviceCredential = if (!id.isNullOrBlank() && !secret.isNullOrBlank()) DeviceCredential(id, secret) else null
     }
 
     fun persistDeviceCredential(context: Context) {
@@ -68,7 +73,7 @@ object PortariaRepository {
     }
 
     suspend fun syncOperationalCache(): PortariaCacheResponse {
-        val context = appContext ?: error("Contexto do aplicativo indisponível.")
+        val context = requireContext()
         val device = deviceCredential ?: error("Este aparelho ainda não foi configurado como portaria.")
         val response = client.functions.invoke(
             function = "portaria-cache",
@@ -91,9 +96,8 @@ object PortariaRepository {
             runCatching { syncOperationalCache() }
             online
         }.getOrElse { error ->
-            if (context != null) {
-                OfflineOperationalCache.guards(context).takeIf { it.isNotEmpty() } ?: throw error
-            } else throw error
+            if (context != null) OfflineOperationalCache.guards(context).takeIf { it.isNotEmpty() } ?: throw error
+            else throw error
         }
     }
 
@@ -110,11 +114,8 @@ object PortariaRepository {
             runCatching { syncOperationalCache() }
             payload
         }.getOrElse { onlineError ->
-            val cached = context?.let { OfflineOperationalCache.verifyPin(it, guardId, pin) }
-                ?: throw onlineError
-            if (cached.credential.mustChangePin) {
-                error("O primeiro acesso e a troca do PIN temporário precisam de conexão.")
-            }
+            val cached = context?.let { OfflineOperationalCache.verifyPin(it, guardId, pin) } ?: throw onlineError
+            if (cached.credential.mustChangePin) error("O primeiro acesso e a troca do PIN temporário precisam de conexão.")
             guardSession = GuardSession(cached.id, cached.name, token = null, offline = true)
             GuardLoginResponse(
                 guard = GuardLoginDto(cached.id, cached.name, cached.pinState),
@@ -129,75 +130,224 @@ object PortariaRepository {
         runCatching { syncOperationalCache() }
     }
 
-    suspend fun startShift(): ShiftDto =
-        invoke<ShiftResponse>(
-            PortariaRequest(
-                action = "start_shift",
-                startedAtLocal = Instant.now().toString(),
-                clientEventId = UUID.randomUUID().toString(),
+    suspend fun startShift(): ShiftDto {
+        val context = requireContext()
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+        val dao = OfflineDatabase.get(context).offlineDao()
+        dao.activeLocalShift()?.let { error("Já existe um turno ativo neste aparelho.") }
+
+        val eventId = UUID.randomUUID().toString()
+        val startedAt = Instant.now().toString()
+        dao.saveLocalShift(LocalShiftEntity(eventId, guard.guardId, guard.guardName, startedAt, true))
+        dao.enqueue(
+            PendingEventEntity(
+                clientEventId = eventId,
+                type = "SHIFT_STARTED",
+                payloadJson = buildJsonObject {
+                    put("guard_id", guard.guardId)
+                    put("started_at_local", startedAt)
+                }.toString(),
+                createdAtLocal = startedAt,
+                monotonicMs = null,
             )
-        ).shift ?: error("Turno não retornado.")
+        )
+        OfflineSyncWorker.schedule(context)
+        return ShiftDto(shiftId = eventId, startedAtServer = startedAt)
+    }
 
     suspend fun availablePatrols(): List<AvailablePatrolDto> {
         val context = appContext
         val guard = guardSession
-        if (guard?.offline == true && context != null) {
+        if (context != null && guard != null && OfflineOperationalCache.hasCache(context)) {
             return OfflineOperationalCache.availablePatrols(context, guard.guardId)
         }
-        return runCatching {
-            invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
-        }.getOrElse { error ->
-            if (context != null && guard != null) {
-                OfflineOperationalCache.availablePatrols(context, guard.guardId).takeIf { it.isNotEmpty() }
-                    ?: throw error
-            } else throw error
-        }
+        return invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
     }
 
-    suspend fun startPatrol(shiftId: String, patrol: AvailablePatrolDto): PatrolRunDto =
-        invoke<PatrolRunResponse>(
-            PortariaRequest(
-                action = "start_patrol",
-                shiftId = shiftId,
-                patrolTemplateId = patrol.patrolTemplateId,
-                scheduleWindowId = patrol.scheduleWindowId,
-                scheduledFor = patrol.scheduledFor,
-                isLate = patrol.isLate,
-                startedAtLocal = Instant.now().toString(),
-                clientEventId = UUID.randomUUID().toString(),
-            )
-        ).run ?: error("Ronda não retornada.")
+    suspend fun startPatrol(shiftId: String, patrol: AvailablePatrolDto): PatrolRunDto {
+        val context = requireContext()
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+        val dao = OfflineDatabase.get(context).offlineDao()
+        val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
+        if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido para este porteiro.")
+        dao.activeLocalRun()?.let { error("Já existe uma ronda em andamento.") }
 
-    suspend fun scan(runId: String, qr: String, monotonicMs: Long): ScanDto =
-        invoke<ScanResponse>(
-            PortariaRequest(
-                action = "scan",
-                runId = runId,
-                qr = qr,
-                capturedAtLocal = Instant.now().toString(),
-                capturedMonotonicMs = monotonicMs,
-                clientEventId = UUID.randomUUID().toString(),
+        val eventId = UUID.randomUUID().toString()
+        val startedAt = Instant.now().toString()
+        val run = LocalPatrolRunEntity(
+            runClientEventId = eventId,
+            shiftClientEventId = shiftId,
+            guardId = guard.guardId,
+            patrolTemplateId = patrol.patrolTemplateId,
+            scheduleWindowId = patrol.scheduleWindowId,
+            patrolName = patrol.patrolName,
+            scheduledFor = patrol.scheduledFor,
+            isLate = patrol.isLate,
+            requiredPoints = patrol.requiredPoints,
+            visitedPoints = 0,
+            startedAtLocal = startedAt,
+            active = true,
+        )
+        dao.saveLocalRun(run)
+        dao.enqueue(
+            PendingEventEntity(
+                clientEventId = eventId,
+                type = "PATROL_STARTED",
+                payloadJson = buildJsonObject {
+                    put("guard_id", guard.guardId)
+                    put("shift_client_event_id", shiftId)
+                    put("patrol_template_id", patrol.patrolTemplateId)
+                    put("schedule_window_id", patrol.scheduleWindowId)
+                    put("scheduled_for", patrol.scheduledFor)
+                    put("started_at_local", startedAt)
+                    put("is_late", patrol.isLate)
+                }.toString(),
+                createdAtLocal = startedAt,
+                monotonicMs = null,
             )
-        ).scan ?: error("Leitura não retornada.")
+        )
+        OfflineSyncWorker.schedule(context)
+        return PatrolRunDto(runId = eventId, requiredPoints = patrol.requiredPoints, startedAtServer = startedAt)
+    }
+
+    suspend fun scan(runId: String, qr: String, monotonicMs: Long): ScanDto {
+        val context = requireContext()
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+        val dao = OfflineDatabase.get(context).offlineDao()
+        val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
+        if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
+
+        val capturedAt = Instant.now().toString()
+        val tokenHash = OfflineOperationalCache.tokenHash(qr)
+        val match = OfflineOperationalCache.qrMatch(context, qr)
+        val required = OfflineOperationalCache.requiredCheckpointIds(context, run.patrolTemplateId)
+        val before = dao.localVisitCount(runId)
+
+        val result: String
+        var checkpointId: String? = match?.checkpointId
+        var checkpointName: String? = match?.checkpointName
+
+        if (match == null) {
+            result = "UNKNOWN_QR"
+        } else if (match.checkpointId !in required) {
+            result = "NOT_IN_ROUND"
+        } else {
+            val inserted = dao.addLocalVisit(
+                LocalVisitedCheckpointEntity(runId, match.checkpointId, match.checkpointName, capturedAt)
+            )
+            result = if (inserted == -1L) "DUPLICATE" else "ACCEPTED"
+        }
+
+        val visited = dao.localVisitCount(runId)
+        if (visited != before) dao.updateLocalVisited(runId, visited)
+
+        val scanEventId = UUID.randomUUID().toString()
+        dao.enqueue(
+            PendingEventEntity(
+                clientEventId = scanEventId,
+                type = "QR_SCANNED",
+                payloadJson = buildJsonObject {
+                    put("guard_id", guard.guardId)
+                    put("run_client_event_id", runId)
+                    put("token_hash", tokenHash)
+                    put("captured_at_local", capturedAt)
+                    put("captured_monotonic_ms", monotonicMs)
+                }.toString(),
+                createdAtLocal = capturedAt,
+                monotonicMs = monotonicMs,
+            )
+        )
+        OfflineSyncWorker.schedule(context)
+
+        return ScanDto(
+            scanResult = result,
+            checkpointId = checkpointId,
+            visitedPoints = visited,
+            totalPoints = run.requiredPoints,
+            checkpointName = checkpointName,
+        )
+    }
 
     suspend fun finishPatrol(runId: String): FinishPatrolDto {
-        val result = invoke<FinishPatrolResponse>(
-            PortariaRequest(action = "finish_patrol", runId = runId, finishedAtLocal = Instant.now().toString())
-        ).result ?: error("Resultado não retornado.")
+        val context = requireContext()
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+        val dao = OfflineDatabase.get(context).offlineDao()
+        val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
+        if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
+
+        val finishedAt = Instant.now().toString()
+        val visitedIds = dao.localVisitedCheckpointIds(runId).toSet()
+        val requiredIds = OfflineOperationalCache.requiredCheckpointIds(context, run.patrolTemplateId)
+        val missing = (requiredIds - visitedIds).toList()
+        val visited = visitedIds.count { it in requiredIds }
+        val total = requiredIds.size
+        val status = if (total > 0 && missing.isEmpty()) "COMPLETED" else "INCOMPLETE"
+
+        val finishEventId = UUID.randomUUID().toString()
+        dao.enqueue(
+            PendingEventEntity(
+                clientEventId = finishEventId,
+                type = "PATROL_FINISHED",
+                payloadJson = buildJsonObject {
+                    put("guard_id", guard.guardId)
+                    put("run_client_event_id", runId)
+                    put("finished_at_local", finishedAt)
+                }.toString(),
+                createdAtLocal = finishedAt,
+                monotonicMs = null,
+            )
+        )
+        dao.finishLocalRun(runId)
+        dao.finishLocalShift(run.shiftClientEventId)
         guardSession = null
-        return result
+        OfflineSyncWorker.schedule(context)
+
+        return FinishPatrolDto(
+            status = status,
+            visitedPoints = visited,
+            totalPoints = total,
+            missingCheckpointIds = missing,
+        )
     }
 
     suspend fun endShift(shiftId: String) {
-        invoke<SimplePortariaResponse>(PortariaRequest(action = "end_shift", shiftId = shiftId, endedAtLocal = Instant.now().toString()))
+        val context = requireContext()
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+        val dao = OfflineDatabase.get(context).offlineDao()
+        dao.activeLocalRun()?.let { error("Finalize a ronda em andamento antes de encerrar o turno.") }
+        val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
+        if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido.")
+
+        val endedAt = Instant.now().toString()
+        val eventId = UUID.randomUUID().toString()
+        dao.enqueue(
+            PendingEventEntity(
+                clientEventId = eventId,
+                type = "SHIFT_ENDED",
+                payloadJson = buildJsonObject {
+                    put("guard_id", guard.guardId)
+                    put("shift_client_event_id", shiftId)
+                    put("ended_at_local", endedAt)
+                }.toString(),
+                createdAtLocal = endedAt,
+                monotonicMs = null,
+            )
+        )
+        dao.finishLocalShift(shiftId)
         guardSession = null
+        OfflineSyncWorker.schedule(context)
     }
+
+    suspend fun pendingOfflineEvents(): Int =
+        appContext?.let { OfflineDatabase.get(it).offlineDao().pendingCount() } ?: 0
 
     fun scheduleOfflineSync() {
         appContext?.let(OfflineSyncWorker::schedule)
     }
 
     fun isOfflineSession(): Boolean = guardSession?.offline == true
+
+    private fun requireContext(): Context = appContext ?: error("Contexto do aplicativo indisponível.")
 
     private suspend inline fun <reified T> invoke(request: PortariaRequest, includeGuardSession: Boolean = true): T {
         val device = deviceCredential ?: error("Este aparelho ainda não foi configurado como portaria.")
@@ -206,9 +356,7 @@ object PortariaRepository {
             "x-device-secret" to listOf(device.deviceSecret),
             HttpHeaders.ContentType to listOf("application/json"),
         )
-        if (includeGuardSession) {
-            guardSession?.token?.let { headers += "x-guard-session" to listOf(it) }
-        }
+        if (includeGuardSession) guardSession?.token?.let { headers += "x-guard-session" to listOf(it) }
         val response = client.functions.invoke(
             function = "portaria-ops",
             body = request,
