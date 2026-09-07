@@ -7,7 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,7 +77,10 @@ fun RondaSafeApp() {
             onAdmin = { screen = if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) AppScreen.ADMIN_DASHBOARD else AppScreen.ADMIN_LOGIN },
         )
 
-        AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(
+            onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD },
+            onBack = { screen = AppScreen.ENTRY },
+        )
 
         AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
             onOpenLocations = { screen = AppScreen.LOCATIONS },
@@ -179,16 +182,16 @@ private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmi
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF062B46), Color(0xFF05243A), Color(0xFF031A2B)),
+                    listOf(Color(0xFF0A456F), RondaSafeColors.Navy, RondaSafeColors.NavyDark),
                 ),
             ),
     ) {
         SkylineIllustration(
             modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = 80.dp)
-                .fillMaxWidth()
-                .height(280.dp),
+                .align(Alignment.CenterEnd)
+                .offset(y = 55.dp, x = 46.dp)
+                .fillMaxWidth(.90f)
+                .height(315.dp),
         )
 
         Box(
@@ -196,7 +199,7 @@ private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmi
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color(0x66031A2B), Color(0xFF031A2B)),
+                        listOf(Color.Transparent, Color(0x16031E32), Color(0xD9031E32)),
                     ),
                 ),
         )
@@ -204,79 +207,93 @@ private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmi
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .statusBarsPadding(),
         ) {
-            Spacer(Modifier.height(28.dp))
-            RondaSafeBrand(
-                modifier = Modifier.fillMaxWidth(.72f),
-                darkBackground = true,
-                showTagline = false,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Segurança em boa companhia",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = .78f),
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+            ) {
+                Spacer(Modifier.height(28.dp))
+                RondaSafeBrand(
+                    modifier = Modifier.width(190.dp),
+                    darkBackground = true,
+                    showTagline = false,
+                )
+                Spacer(Modifier.height(30.dp))
+                Text(
+                    "Segurança que acompanha\ncada passo da sua ronda.",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Porteiros, pontos de controle e histórico em um só lugar.",
+                    modifier = Modifier.fillMaxWidth(.83f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = .76f),
+                )
+            }
 
             Spacer(Modifier.weight(1f))
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp, bottomStart = 30.dp, bottomEnd = 30.dp),
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
                 color = Color.White,
-                tonalElevation = 8.dp,
-                shadowElevation = 12.dp,
+                shadowElevation = 14.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(18.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 22.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        "Como você quer entrar?",
+                        "Acessar RondaSafe",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.ExtraBold,
                         color = RondaSafeColors.Navy,
                     )
                     Text(
-                        "Escolha o perfil de acesso para continuar.",
+                        "Escolha como você vai utilizar este aparelho.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = RondaSafeColors.Muted,
                     )
 
                     EntryActionCard(
                         title = "Portaria",
-                        subtitle = if (portariaEnabled) "Iniciar turno e realizar rondas" else "Este aparelho ainda não está configurado",
+                        subtitle = if (portariaEnabled) "Iniciar turno e realizar rondas" else "Configure este aparelho pelo painel administrativo",
                         icon = Icons.Rounded.Badge,
                         enabled = portariaEnabled,
                         onClick = onPortaria,
                     )
-
                     EntryActionCard(
                         title = "Administrador",
-                        subtitle = "Gerenciar locais, porteiros e rondas",
+                        subtitle = "Gerenciar equipe, locais, rondas e histórico",
                         icon = Icons.Rounded.AdminPanelSettings,
                         enabled = true,
                         onClick = onAdmin,
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.CloudDone, null, tint = RondaSafeColors.Green, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Dados protegidos e sincronizados na nuvem",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RondaSafeColors.Muted,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
-
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Lock, null, tint = Color.White.copy(alpha = .52f), modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "Acesso protegido e sincronizado",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = .58f),
-                )
-            }
-            Spacer(Modifier.navigationBarsPadding().height(18.dp))
         }
     }
 }
@@ -298,10 +315,11 @@ private fun EntryActionCard(
             containerColor = RondaSafeColors.Background,
             disabledContainerColor = Color(0xFFF0F2F4),
         ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (enabled) RondaSafeColors.Border else Color(0xFFE4E8EC)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
@@ -330,11 +348,7 @@ private fun EntryActionCard(
                     maxLines = 2,
                 )
             }
-            Icon(
-                Icons.Rounded.ChevronRight,
-                null,
-                tint = if (enabled) RondaSafeColors.Navy else RondaSafeColors.Muted,
-            )
+            Icon(Icons.Rounded.ChevronRight, null, tint = if (enabled) RondaSafeColors.Navy else RondaSafeColors.Muted)
         }
     }
 }
