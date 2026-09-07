@@ -1,6 +1,5 @@
 package com.rondasafe.app.ui.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,10 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -40,86 +36,7 @@ fun RondaSafeMark(
     buildingColor: Color = Color.White,
     accentColor: Color = RondaSafeColors.Blue,
 ) {
-    Canvas(modifier = modifier.size(104.dp)) {
-        val w = size.width
-        val h = size.height
-
-        val body = Path().apply {
-            moveTo(w * .28f, h * .38f)
-            lineTo(w * .55f, h * .16f)
-            lineTo(w * .76f, h * .28f)
-            lineTo(w * .76f, h * .84f)
-            lineTo(w * .28f, h * .84f)
-            close()
-        }
-        drawPath(body, buildingColor)
-
-        val leftFace = Path().apply {
-            moveTo(w * .28f, h * .38f)
-            lineTo(w * .40f, h * .31f)
-            lineTo(w * .40f, h * .84f)
-            lineTo(w * .28f, h * .84f)
-            close()
-        }
-        drawPath(leftFace, buildingColor.copy(alpha = .72f))
-
-        val rightFace = Path().apply {
-            moveTo(w * .76f, h * .28f)
-            lineTo(w * .84f, h * .33f)
-            lineTo(w * .84f, h * .84f)
-            lineTo(w * .76f, h * .84f)
-            close()
-        }
-        drawPath(rightFace, accentColor.copy(alpha = .9f))
-
-        val leftWing = Path().apply {
-            moveTo(w * .10f, h * .64f)
-            lineTo(w * .28f, h * .54f)
-            lineTo(w * .28f, h * .84f)
-            lineTo(w * .10f, h * .84f)
-            close()
-        }
-        drawPath(leftWing, buildingColor.copy(alpha = .88f))
-
-        val rightWing = Path().apply {
-            moveTo(w * .84f, h * .60f)
-            lineTo(w * .94f, h * .65f)
-            lineTo(w * .94f, h * .84f)
-            lineTo(w * .84f, h * .84f)
-            close()
-        }
-        drawPath(rightWing, buildingColor.copy(alpha = .88f))
-
-        val window = RondaSafeColors.NavyDark
-        val rows = 5
-        val cols = 2
-        repeat(rows) { r ->
-            repeat(cols) { c ->
-                drawRect(
-                    color = window,
-                    topLeft = Offset(w * (.49f + c * .12f), h * (.31f + r * .105f)),
-                    size = Size(w * .045f, h * .048f),
-                )
-            }
-        }
-        repeat(3) { r ->
-            drawRect(
-                color = RondaSafeColors.Navy,
-                topLeft = Offset(w * .16f, h * (.66f + r * .065f)),
-                size = Size(w * .04f, h * .035f),
-            )
-            drawRect(
-                color = RondaSafeColors.Navy,
-                topLeft = Offset(w * .88f, h * (.66f + r * .065f)),
-                size = Size(w * .03f, h * .035f),
-            )
-        }
-        drawRect(
-            color = accentColor,
-            topLeft = Offset(w * .57f, h * .73f),
-            size = Size(w * .075f, h * .11f),
-        )
-    }
+    RondaSafeAppLogoImage(modifier = modifier.size(104.dp))
 }
 
 @Composable
