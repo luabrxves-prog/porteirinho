@@ -13,49 +13,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.data.local.OfflineSyncStatus
 import com.rondasafe.app.data.local.OfflineSyncStatusRepository
 
 @Composable
 fun OfflineSyncStatusBanner(modifier: Modifier = Modifier) {
     val context = LocalContext.current.applicationContext
     val flow = remember(context) { OfflineSyncStatusRepository.observe(context) }
-    val status by flow.collectAsState(initial = com.rondasafe.app.data.local.OfflineSyncStatus())
+    val status by flow.collectAsState(initial = OfflineSyncStatus())
+
+    // Sincronizacao normal e silenciosa. Pendencias momentaneas fazem parte do
+    // mecanismo offline-first e nao devem parecer erro para o porteiro.
+    if (status.failedPermanent <= 0) return
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            when {
-                status.failedPermanent > 0 -> {
-                    Text(
-                        "${status.failedPermanent} registro(s) precisam de atenção",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Text(
-                        status.latestError ?: "Há dados salvos no aparelho que o servidor não aceitou.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                status.pending > 0 -> {
-                    Text(
-                        "Salvo no aparelho",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        "${status.pending} registro(s) aguardando sincronização.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                else -> {
-                    Text(
-                        "Tudo sincronizado",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        "Os registros deste aparelho foram enviados com sucesso.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
+            Text(
+                "Falha de sincronizacao",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Text(
+                status.latestError ?: "Ha registros deste aparelho que precisam de atencao do administrador.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
