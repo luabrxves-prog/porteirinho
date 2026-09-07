@@ -17,6 +17,10 @@ import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -43,6 +47,7 @@ class OfflineSyncWorker(
         private const val UNIQUE_WORK = "rondasafe-offline-sync"
         private const val MAX_PARENT_RETRIES = 3
         private val json = Json { ignoreUnknownKeys = true }
+        private val foregroundSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         /**
          * Processa a fila inteira. Respostas HTTP do servidor (4xx/5xx) não são
@@ -105,9 +110,6 @@ class OfflineSyncWorker(
                             ),
                         ).body<OfflineIngestResponse>()
                     } catch (error: RestException) {
-                        // supabase-kt lança RestException em qualquer resposta não-2xx.
-                        // A Edge Function já retorna { error, retryable }; aproveitamos
-                        // esse payload para decidir corretamente entre retry e falha real.
                         runCatching {
                             json.decodeFromString<OfflineIngestResponse>(error.error)
                         }.getOrElse {
@@ -160,11 +162,17 @@ class OfflineSyncWorker(
         }
 
         /**
-         * Toda ação operacional chama schedule(). REPLACE evita ficar atrás de um
-         * backoff antigo e expedited pede execução imediata quando o Android permite.
-         * A fila local continua sendo a garantia caso a conexão caia.
+         * Caminho normal: tenta enviar imediatamente em I/O, sem bloquear a UI.
+         * O WorkManager continua como fallback durável caso a rede caia, o processo
+         * seja encerrado ou a tentativa imediata falhe.
          */
         fun schedule(context: Context, force: Boolean = false) {
+            val appContext = context.applicationContext
+
+            foregroundSyncScope.launch {
+                runCatching { syncPending(appContext) }
+            }
+
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
@@ -179,7 +187,7 @@ class OfflineSyncWorker(
                 )
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            WorkManager.getInstance(appContext).enqueueUniqueWork(
                 UNIQUE_WORK,
                 ExistingWorkPolicy.REPLACE,
                 request,
