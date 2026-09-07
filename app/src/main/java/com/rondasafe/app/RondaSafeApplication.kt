@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
 import com.rondasafe.app.data.local.OfflineSyncWorker
 import java.util.TimeZone
 
@@ -29,6 +32,18 @@ class RondaSafeApplication : Application() {
             }
         }
         networkCallback = callback
-        runCatching { manager.registerDefaultNetworkCallback(callback) }
+
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                manager.registerDefaultNetworkCallback(callback)
+            } else {
+                manager.registerNetworkCallback(
+                    NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build(),
+                    callback,
+                )
+            }
+        }
     }
 }
