@@ -46,7 +46,7 @@ fun AlertsScreen(onBack: () -> Unit) {
             contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { SectionHeading("Atenção à operação", "Atrasos, rondas incompletas, acessos e leituras suspeitas.") }
+            item { SectionHeading("Atenção à operação", "Atrasos, rondas incompletas, ocorrências e atividades suspeitas.") }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             if (!loading && alerts.isEmpty()) {
@@ -114,6 +114,8 @@ private fun alertTypeLabel(type: String): String = when (type) {
     "PATROL_NOT_STARTED" -> "Ronda não iniciada"
     "PATROL_LATE" -> "Ronda atrasada"
     "PATROL_INCOMPLETE" -> "Ronda incompleta"
+    "PATROL_TOO_FAST" -> "Ronda rápida demais"
+    "GUARD_OCCURRENCE" -> "Ocorrência informada pelo porteiro"
     "SUSPICIOUS_SCAN" -> "Leitura suspeita"
     "DEVICE_SYNC_STALE" -> "Aparelho sem sincronização"
     "INVALID_ACCESS" -> "Acesso inválido"
