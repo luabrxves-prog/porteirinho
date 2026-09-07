@@ -1,11 +1,13 @@
 package com.rondasafe.app.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,6 +28,9 @@ object RondaSafeUi {
     val SmallRadius = 14.dp
 }
 
+private val PremiumBorder = Color(0xFFDCE4EA)
+private val PremiumSoftSurface = Color(0xFFF8FAFC)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PremiumTopBar(
@@ -39,14 +44,27 @@ fun PremiumTopBar(
                 title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 color = RondaSafeColors.Text,
             )
         },
         navigationIcon = {
             if (onBack != null) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "Voltar", tint = RondaSafeColors.Navy)
+                    Surface(
+                        modifier = Modifier.size(38.dp),
+                        shape = RoundedCornerShape(13.dp),
+                        color = PremiumSoftSurface,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.ArrowBackIosNew,
+                                contentDescription = "Voltar",
+                                tint = RondaSafeColors.Navy,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -118,24 +136,33 @@ fun PremiumHeroCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(150.dp)
-            .background(
-                brush = Brush.linearGradient(
-                    listOf(RondaSafeColors.Navy, Color(0xFF0B4B78)),
-                ),
-                shape = RoundedCornerShape(26.dp),
-            ),
+            .height(154.dp)
+            .background(RondaSafeColors.Navy, RoundedCornerShape(26.dp)),
     ) {
-        SkylineIllustration(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .fillMaxWidth(.54f)
-                .height(118.dp),
+        EntryBuildingBackground(
+            Modifier
+                .matchParentSize()
+                .background(Color.Transparent, RoundedCornerShape(26.dp)),
+        )
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xF2052A44),
+                            Color(0xD9052A44),
+                            Color(0x66052A44),
+                        ),
+                    ),
+                    RoundedCornerShape(26.dp),
+                ),
         )
         Column(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 20.dp, end = 150.dp),
+                .padding(horizontal = 20.dp)
+                .fillMaxWidth(.64f),
         ) {
             Text(
                 title,
@@ -149,7 +176,7 @@ fun PremiumHeroCard(
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = .76f),
+                color = Color.White.copy(alpha = .78f),
                 maxLines = 2,
             )
         }
@@ -165,28 +192,39 @@ fun PremiumMetricCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, RondaSafeColors.Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = BorderStroke(1.dp, PremiumBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(40.dp),
-                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.size(42.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = RondaSafeColors.BlueSoft,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = RondaSafeColors.Blue, modifier = Modifier.size(22.dp))
+                    Icon(icon, null, tint = RondaSafeColors.Navy, modifier = Modifier.size(22.dp))
                 }
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                Text(label, style = MaterialTheme.typography.labelMedium, color = RondaSafeColors.Muted, maxLines = 1)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = RondaSafeColors.Navy,
+                )
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = RondaSafeColors.Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -204,18 +242,18 @@ fun PremiumMenuRow(
     Card(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, RondaSafeColors.Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, PremiumBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 15.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.size(46.dp),
+                shape = RoundedCornerShape(15.dp),
                 color = if (danger) Color(0xFFFFEEEE) else RondaSafeColors.Navy,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -232,7 +270,7 @@ fun PremiumMenuRow(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = RondaSafeColors.Text,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -247,7 +285,12 @@ fun PremiumMenuRow(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            Text("›", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Muted)
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = RondaSafeColors.Muted,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -263,7 +306,11 @@ fun SectionHeading(title: String, subtitle: String? = null) {
         )
         if (!subtitle.isNullOrBlank()) {
             Spacer(Modifier.height(3.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = RondaSafeColors.Muted)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = RondaSafeColors.Muted,
+            )
         }
     }
 }
@@ -276,21 +323,33 @@ fun EmptyStateCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, RondaSafeColors.Border),
+        border = BorderStroke(1.dp, PremiumBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(22.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Surface(shape = RoundedCornerShape(16.dp), color = RondaSafeColors.BlueSoft) {
-                Icon(icon, null, tint = RondaSafeColors.Blue, modifier = Modifier.padding(12.dp).size(28.dp))
+                Icon(
+                    icon,
+                    null,
+                    tint = RondaSafeColors.Navy,
+                    modifier = Modifier.padding(12.dp).size(28.dp),
+                )
             }
             Spacer(Modifier.height(12.dp))
-            Text(title, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+            Text(title, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
             Spacer(Modifier.height(4.dp))
-            Text(message, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = RondaSafeColors.Muted,
+            )
         }
     }
 }
