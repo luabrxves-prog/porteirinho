@@ -16,6 +16,7 @@ data class ReportTotalsDto(
     val runs: Int = 0,
     val scans: Int = 0,
     val alerts: Int = 0,
+    val occurrences: Int = 0,
     val audit: Int = 0,
 )
 
