@@ -22,6 +22,9 @@ import com.rondasafe.app.data.model.CheckpointDto
 import com.rondasafe.app.data.model.FloorDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.ui.components.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
@@ -33,6 +36,7 @@ fun SimplifiedCheckpointsScreen(
     val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
     var data by remember { mutableStateOf<List<CheckpointDto>>(emptyList()) }
+    var qrReady by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addOpen by remember { mutableStateOf(false) }
@@ -41,9 +45,18 @@ fun SimplifiedCheckpointsScreen(
     LaunchedEffect(refresh, floor.id) {
         loading = true
         error = null
-        runCatching { AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active } }
-            .onSuccess { data = it }
-            .onFailure { error = it.message }
+        runCatching {
+            val checkpoints = AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
+            val readiness = coroutineScope {
+                checkpoints.map { checkpoint ->
+                    async { checkpoint.id to (runCatching { AdminRepository.getActiveQr(checkpoint.id) }.getOrNull() != null) }
+                }.awaitAll().toMap()
+            }
+            checkpoints to readiness
+        }.onSuccess { (checkpoints, readiness) ->
+            data = checkpoints
+            qrReady = readiness
+        }.onFailure { error = it.message }
         loading = false
     }
 
@@ -57,9 +70,11 @@ fun SimplifiedCheckpointsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
+                val ready = qrReady.values.count { it }
                 SectionHeading(
                     "Pontos de controle",
-                    "Cadastre os locais onde o porteiro fará a leitura do QR Code.",
+                    if (data.isEmpty()) "Cadastre os locais que farão parte da ronda."
+                    else "$ready de ${data.size} QR Code(s) prontos para uso.",
                 )
             }
             item {
@@ -81,6 +96,7 @@ fun SimplifiedCheckpointsScreen(
             }
 
             items(data, key = { it.id }) { checkpoint ->
+                val isReady = qrReady[checkpoint.id] == true
                 Card(
                     onClick = { onSelect(checkpoint) },
                     modifier = Modifier.fillMaxWidth(),
@@ -102,9 +118,18 @@ fun SimplifiedCheckpointsScreen(
                             checkpoint.description?.takeIf { it.isNotBlank() }?.let {
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
                             }
-                            Spacer(Modifier.height(4.dp))
-                            Surface(shape = RoundedCornerShape(50), color = RondaSafeColors.GreenSoft) {
-                                Text("Ativo", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Green)
+                            Spacer(Modifier.height(5.dp))
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (isReady) RondaSafeColors.GreenSoft else Color(0xFFFFF4DF),
+                            ) {
+                                Text(
+                                    if (isReady) "QR pronto" else "QR pendente",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isReady) RondaSafeColors.Green else Color(0xFFB66A00),
+                                    fontWeight = FontWeight.Bold,
+                                )
                             }
                         }
                         IconButton(onClick = { archiveTarget = checkpoint }) {

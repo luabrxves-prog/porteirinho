@@ -74,8 +74,8 @@ fun ReportScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             SectionHeading(
-                "Exportar planilha",
-                "Gere um Excel estruturado com o histórico operacional do condomínio.",
+                "Conferência da operação",
+                "Gere uma planilha simples para verificar se as rondas foram feitas e o que precisa de atenção.",
             )
 
             Card(
@@ -123,9 +123,9 @@ fun ReportScreen(onBack: () -> Unit) {
                     Icon(Icons.Rounded.Description, null, tint = RondaSafeColors.Navy)
                     Spacer(Modifier.width(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("O Excel é separado por abas", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                        Text("Feito para conferência do administrador", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
                         Text(
-                            "Resumo, Rondas, Pontos, Leituras QR, Turnos, Alertas, Ocorrências e Auditoria.",
+                            "O Excel tem somente 3 abas: Resumo, Rondas e Problemas e ocorrências.",
                             style = MaterialTheme.typography.bodySmall,
                             color = RondaSafeColors.Muted,
                         )

@@ -7,74 +7,70 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.data.model.PatrolHistoryItemDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.AuthRepository
-import com.rondasafe.app.data.repository.GuardRepository
-import com.rondasafe.app.data.repository.PatrolRepository
+import com.rondasafe.app.data.repository.PatrolHistoryRepository
 import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
+
+private val dashboardZone = ZoneId.of("America/Sao_Paulo")
 
 private data class DashboardMetrics(
     val condominium: String = "Condomínio",
-    val blocks: Int = 0,
-    val checkpoints: Int = 0,
-    val guards: Int = 0,
-    val patrols: Int = 0,
-)
+    val today: List<PatrolHistoryItemDto> = emptyList(),
+    val openAlerts: Int = 0,
+) {
+    val total: Int get() = today.size
+    val completed: Int get() = today.count { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
+    val attention: Int get() = today.count {
+        it.displayStatus in setOf("MISSED", "INCOMPLETE", "LATE") || it.isLate || it.suspicious || it.missingPoints > 0
+    }
+}
 
 @Composable
 fun AdminDashboardScreenV3(
     onOpenLocations: () -> Unit,
     onOpenGuards: () -> Unit,
     onOpenPatrols: () -> Unit,
-    onOpenAssignments: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenAlerts: () -> Unit,
-    onOpenSync: () -> Unit,
-    onOpenArchived: () -> Unit,
-    onOpenDeviceProvision: () -> Unit,
+    onOpenSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var metrics by remember { mutableStateOf(DashboardMetrics()) }
+    var loading by remember { mutableStateOf(true) }
 
-    // O painel aparece imediatamente e os indicadores são carregados em paralelo.
-    // Antes, cada andar/ponto era consultado em sequência, multiplicando a latência.
     LaunchedEffect(Unit) {
+        loading = true
         runCatching {
             coroutineScope {
                 val condominiumDeferred = async { AdminRepository.condominium() }
-                val blocksDeferred = async { AdminRepository.defaultBlocks() }
-                val guardsDeferred = async { GuardRepository.list().count { it.active } }
-                val patrolsDeferred = async { PatrolRepository.listTemplates().count { it.active } }
-
-                val condominium = condominiumDeferred.await()
-                val blocks = blocksDeferred.await()
-
-                val checkpoints = blocks.map { block ->
-                    async {
-                        val floors = AdminRepository.listFloors(block.id)
-                        floors.map { floor ->
-                            async { AdminRepository.listCheckpoints(floor.id).size }
-                        }.awaitAll().sum()
-                    }
-                }.awaitAll().sum()
-
+                val alertsDeferred = async { AdminRepository.listAlerts().size }
+                val todayDeferred = async {
+                    val today = LocalDate.now(dashboardZone)
+                    PatrolHistoryRepository.listRange(
+                        from = today.atStartOfDay(dashboardZone).toInstant(),
+                        to = today.plusDays(1).atStartOfDay(dashboardZone).toInstant().minusMillis(1),
+                    )
+                }
                 DashboardMetrics(
-                    condominium = condominium.name,
-                    blocks = blocks.size,
-                    checkpoints = checkpoints,
-                    guards = guardsDeferred.await(),
-                    patrols = patrolsDeferred.await(),
+                    condominium = condominiumDeferred.await().name,
+                    today = todayDeferred.await(),
+                    openAlerts = alertsDeferred.await(),
                 )
             }
         }.onSuccess { metrics = it }
+        loading = false
     }
 
     Scaffold(
@@ -89,36 +85,61 @@ fun AdminDashboardScreenV3(
             item {
                 CondoPhotoHeroCard(
                     title = metrics.condominium,
-                    subtitle = "Gestão de rondas e segurança",
+                    subtitle = "Acompanhamento da operação de hoje",
                 )
             }
 
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+
+            item {
+                val needsAttention = metrics.attention > 0 || metrics.openAlerts > 0
+                val title = when {
+                    needsAttention -> "Atenção necessária"
+                    metrics.total == 0 -> "Sem rondas previstas hoje"
+                    else -> "Tudo em ordem"
+                }
+                val subtitle = when {
+                    metrics.attention > 0 -> "${metrics.attention} ronda(s) de hoje precisam de revisão."
+                    metrics.openAlerts > 0 -> "${metrics.openAlerts} alerta(s) ainda estão pendentes."
+                    metrics.total == 0 -> "Nenhuma ronda está programada para hoje."
+                    else -> "As rondas de hoje não apresentam problemas pendentes."
+                }
+                val background = if (needsAttention) Color(0xFFFFF4DF) else RondaSafeColors.GreenSoft
+                val foreground = if (needsAttention) Color(0xFFB66A00) else RondaSafeColors.Green
+                Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = background) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(title, fontWeight = FontWeight.ExtraBold, color = foreground, style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(subtitle, color = RondaSafeColors.Text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.checkpoints.toString(), "Pontos", Icons.Rounded.LocationOn, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.blocks.toString(), "Blocos", Icons.Rounded.Apartment, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.total.toString(), "Previstas hoje", Icons.Rounded.Schedule, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.completed.toString(), "Tudo certo", Icons.Rounded.CheckCircle, Modifier.weight(1f))
                 }
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.guards.toString(), "Porteiros", Icons.Rounded.Groups, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.patrols.toString(), "Rondas", Icons.Rounded.CalendarMonth, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.attention.toString(), "Atenção", Icons.Rounded.WarningAmber, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.openAlerts.toString(), "Alertas", Icons.Rounded.NotificationsActive, Modifier.weight(1f))
                 }
             }
 
-            item { Spacer(Modifier.height(4.dp)); SectionHeading("Gestão") }
-            item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos de controle e QR Codes", Icons.Rounded.Place, onOpenLocations) }
-            item { PremiumMenuRow("Porteiros", "Equipe, fotos e acessos por PIN", Icons.Rounded.Badge, onOpenGuards) }
-            item { PremiumMenuRow("Programações de rondas", "Horários, frequência e responsáveis", Icons.Rounded.Schedule, onOpenPatrols) }
-            item { PremiumMenuRow("Histórico de rondas", "Relatórios, status e ocorrências", Icons.Rounded.History, onOpenHistory) }
-            item { PremiumMenuRow("Relatórios e Excel", "Exporte rondas, pontos, turnos, alertas e auditoria", Icons.Rounded.TableView, onOpenReports) }
+            item { Spacer(Modifier.height(4.dp)); SectionHeading("Operação de hoje", "O que você precisa conferir no dia a dia.") }
+            item { PremiumMenuRow("Rondas de hoje e histórico", "Veja se as rondas foram feitas corretamente", Icons.Rounded.History, onOpenHistory) }
+            item { PremiumMenuRow("Alertas", "Somente situações que precisam da sua atenção", Icons.Rounded.NotificationsActive, onOpenAlerts) }
 
-            item { Spacer(Modifier.height(4.dp)); SectionHeading("Operação") }
-            item { PremiumMenuRow("Responsáveis por ronda", "Opcional — sem responsável, qualquer porteiro pode realizar", Icons.Rounded.AssignmentInd, onOpenAssignments) }
-            item { PremiumMenuRow("Alertas", "Atrasos, rondas incompletas e leituras suspeitas", Icons.Rounded.NotificationsActive, onOpenAlerts) }
-            item { PremiumMenuRow("Arquivados", "Porteiros, andares, pontos e rondas arquivados", Icons.Rounded.Archive, onOpenArchived) }
-            item { PremiumMenuRow("Configurar aparelho", "Vincule este celular à operação da portaria", Icons.Rounded.PhoneAndroid, onOpenDeviceProvision) }
-            item { PremiumMenuRow("Sincronização", "Pendências offline e registros que precisam de atenção", Icons.Rounded.Sync, onOpenSync) }
+            item { Spacer(Modifier.height(4.dp)); SectionHeading("Gestão", "Cadastros e programação da operação.") }
+            item { PremiumMenuRow("Programações de rondas", "Dias, horários e quem pode realizar", Icons.Rounded.Schedule, onOpenPatrols) }
+            item { PremiumMenuRow("Porteiros", "Equipe, fotos e acessos", Icons.Rounded.Badge, onOpenGuards) }
+            item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos e QR Codes da ronda", Icons.Rounded.Place, onOpenLocations) }
+            item { PremiumMenuRow("Relatórios", "Conferência simples da operação em Excel", Icons.Rounded.TableView, onOpenReports) }
+
+            item { Spacer(Modifier.height(4.dp)); SectionHeading("Outros") }
+            item { PremiumMenuRow("Configurações", "Aparelho, arquivados e diagnóstico", Icons.Rounded.Settings, onOpenSettings) }
 
             item {
                 Spacer(Modifier.height(4.dp))
