@@ -1,29 +1,28 @@
 package com.rondasafe.app.ui.admin
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.GuardDto
 import com.rondasafe.app.data.model.PatrolScheduleWindowDto
 import com.rondasafe.app.data.model.PatrolTemplateDto
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolRepository
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
-private val assignmentDayNames = mapOf(
-    1 to "Segunda",
-    2 to "Terça",
-    3 to "Quarta",
-    4 to "Quinta",
-    5 to "Sexta",
-    6 to "Sábado",
-    7 to "Domingo",
-)
+private val assignmentDayNames = mapOf(1 to "Segunda", 2 to "Terça", 3 to "Quarta", 4 to "Quinta", 5 to "Sexta", 6 to "Sábado", 7 to "Domingo")
 
 private data class AssignmentWindowRow(
     val template: PatrolTemplateDto,
@@ -45,65 +44,67 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
             loading = true
             error = null
             runCatching {
-                val activeGuards = GuardRepository.list()
-                val templates = PatrolRepository.listTemplates()
+                val activeGuards = GuardRepository.list().filter { it.active }
+                val templates = PatrolRepository.listTemplates().filter { it.active }
                 val windowRows = mutableListOf<AssignmentWindowRow>()
                 for (template in templates) {
                     for (window in PatrolRepository.listWindows(template.id)) {
-                        val assigned = PatrolRepository.listAssignments(window.id, includeArchived = false)
-                            .map { it.guardId }
-                            .toSet()
+                        val assigned = PatrolRepository.listAssignments(window.id, includeArchived = false).map { it.guardId }.toSet()
                         windowRows += AssignmentWindowRow(template, window, assigned)
                     }
                 }
-                activeGuards to windowRows.sortedWith(
-                    compareBy<AssignmentWindowRow> { it.template.name.lowercase() }
-                        .thenBy { it.window.dayOfWeek }
-                        .thenBy { it.window.startTime }
-                )
-            }.onSuccess { (loadedGuards, loadedRows) ->
-                guards = loadedGuards
-                rows = loadedRows
-            }.onFailure { error = it.message ?: "Não foi possível carregar as atribuições." }
+                activeGuards to windowRows.sortedWith(compareBy<AssignmentWindowRow> { it.template.name.lowercase() }.thenBy { it.window.dayOfWeek }.thenBy { it.window.startTime })
+            }.onSuccess { (loadedGuards, loadedRows) -> guards = loadedGuards; rows = loadedRows }
+                .onFailure { error = it.message }
             loading = false
         }
     }
-
     LaunchedEffect(Unit) { reload() }
 
-    Scaffold(topBar = { AppTopBar("Responsáveis por Ronda", onBack) }) { padding ->
-        Column(
-            modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(),
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { PremiumTopBar("Responsáveis por ronda", onBack) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Sem porteiro atribuído, a janela fica disponível para qualquer porteiro ativo.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(rows, key = { it.window.id }) { row ->
-                    val names = guards.filter { it.id in row.assignedGuardIds }.map { it.name }
-                    Card(onClick = { selectedRow = row }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(row.template.name, style = MaterialTheme.typography.titleMedium)
+            item { SectionHeading("Responsáveis", "A atribuição é opcional. Sem responsável específico, qualquer porteiro ativo pode realizar.") }
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (!loading && rows.isEmpty()) item { EmptyStateCard("Nenhuma programação ativa", "Crie uma ronda para definir responsáveis.", Icons.Rounded.AssignmentInd) }
+            items(rows, key = { it.window.id }) { row ->
+                val names = guards.filter { it.id in row.assignedGuardIds }.map { it.name }
+                Card(
+                    onClick = { selectedRow = row },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(modifier = Modifier.size(46.dp), shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
+                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AssignmentInd, null, tint = RondaSafeColors.Navy) }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(row.template.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                            Text("${assignmentDayNames[row.window.dayOfWeek]} • ${row.window.startTime.take(5)} às ${row.window.endTime.take(5)}", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                            Spacer(Modifier.height(4.dp))
                             Text(
-                                "${assignmentDayNames[row.window.dayOfWeek]} • ${row.window.startTime.take(5)} às ${row.window.endTime.take(5)}",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Text(
-                                if (names.isEmpty()) "Qualquer porteiro ativo" else names.joinToString(", "),
+                                if (names.isEmpty()) "Sem responsável específico — qualquer porteiro pode realizar" else names.joinToString(", "),
                                 style = MaterialTheme.typography.bodySmall,
+                                color = if (names.isEmpty()) RondaSafeColors.Green else RondaSafeColors.Text,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
+                        Text("›", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Muted)
                     }
                 }
             }
+            item { Spacer(Modifier.height(18.dp)) }
         }
     }
 
@@ -115,11 +116,8 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
             onSave = { selectedIds ->
                 scope.launch {
                     runCatching { PatrolRepository.setAssignments(row.window.id, selectedIds) }
-                        .onSuccess {
-                            selectedRow = null
-                            reload()
-                        }
-                        .onFailure { error = it.message ?: "Não foi possível salvar as atribuições." }
+                        .onSuccess { selectedRow = null; reload() }
+                        .onFailure { error = it.message }
                 }
             },
         )
@@ -133,48 +131,31 @@ private fun AssignmentDialog(
     onDismiss: () -> Unit,
     onSave: (Set<String>) -> Unit,
 ) {
-    var selected by remember(row.window.id, row.assignedGuardIds) {
-        mutableStateOf(row.assignedGuardIds)
-    }
-
+    var selected by remember(row.window.id, row.assignedGuardIds) { mutableStateOf(row.assignedGuardIds) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Definir responsáveis") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "${row.template.name} • ${assignmentDayNames[row.window.dayOfWeek]} • ${row.window.startTime.take(5)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                if (guards.isEmpty()) {
-                    Text("Nenhum porteiro ativo cadastrado.")
-                } else {
-                    guards.forEach { guard ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = guard.id in selected,
-                                onCheckedChange = { checked ->
-                                    selected = if (checked) selected + guard.id else selected - guard.id
-                                },
-                            )
-                            Text(guard.name)
-                        }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Text("${row.template.name} • ${assignmentDayNames[row.window.dayOfWeek]} • ${row.window.startTime.take(5)}", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Surface(shape = RoundedCornerShape(14.dp), color = RondaSafeColors.GreenSoft) {
+                        Text("Nenhum marcado = qualquer porteiro ativo pode realizar", modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Green)
                     }
                 }
-                Text(
-                    "Se nenhum porteiro for marcado, qualquer porteiro ativo poderá executar essa janela.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                items(guards, key = { it.id }) { guard ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = guard.id in selected,
+                            onCheckedChange = { checked -> selected = if (checked) selected + guard.id else selected - guard.id },
+                        )
+                        Text(guard.name)
+                    }
+                }
             }
         },
-        confirmButton = {
-            Button(onClick = { onSave(selected) }) { Text("Salvar") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        },
+        confirmButton = { Button(onClick = { onSave(selected) }) { Text("Salvar") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
