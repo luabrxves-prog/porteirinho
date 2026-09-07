@@ -9,6 +9,7 @@
         android:required="true" />
 
     <application
+        android:name=".RondaSafeApplication"
         android:allowBackup="false"
         android:icon="@drawable/rondasafe_app_icon"
         android:roundIcon="@drawable/rondasafe_app_icon"
