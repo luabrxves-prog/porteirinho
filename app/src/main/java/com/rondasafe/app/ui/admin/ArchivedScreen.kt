@@ -48,64 +48,37 @@ fun ArchivedScreen(onBack: () -> Unit) {
     var refresh by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<ArchivedUiItem?>(null) }
 
-    fun load() {
-        scope.launch {
-            loading = true
-            error = null
-            runCatching {
-                val result = mutableListOf<ArchivedUiItem>()
-
-                GuardRepository.list(includeArchived = true)
-                    .filter { !it.active }
-                    .forEach {
-                        result += ArchivedUiItem(it.id, "guard", "Porteiros", it.name, "Porteiro arquivado", Icons.Rounded.Badge)
+    LaunchedEffect(refresh) {
+        loading = true
+        error = null
+        runCatching {
+            buildList {
+                GuardRepository.list(includeArchived = true).filter { !it.active }.forEach {
+                    add(ArchivedUiItem(it.id, "guard", "Porteiros", it.name, "Porteiro arquivado", Icons.Rounded.Badge))
+                }
+                AdminRepository.defaultBlocks().forEach { block ->
+                    val floors = AdminRepository.listFloors(block.id, includeArchived = true)
+                    floors.filter { !it.active }.forEach { floor ->
+                        add(ArchivedUiItem(floor.id, "floor", "Andares", floor.name, block.name, Icons.Rounded.Layers))
                     }
-
-                val blocks = AdminRepository.defaultBlocks()
-                blocks.forEach { block ->
-                    val allFloors = AdminRepository.listFloors(block.id, includeArchived = true)
-                    allFloors.filter { !it.active }.forEach { floor ->
-                        result += ArchivedUiItem(
-                            floor.id,
-                            "floor",
-                            "Andares",
-                            floor.name,
-                            block.name,
-                            Icons.Rounded.Layers,
-                        )
-                    }
-                    allFloors.forEach { floor ->
-                        AdminRepository.listCheckpoints(floor.id, includeArchived = true)
-                            .filter { !it.active }
-                            .forEach { checkpoint ->
-                                result += ArchivedUiItem(
-                                    checkpoint.id,
-                                    "checkpoint",
-                                    "Pontos",
-                                    checkpoint.name,
-                                    "${block.name} • ${floor.name}",
-                                    Icons.Rounded.Place,
-                                )
-                            }
+                    floors.forEach { floor ->
+                        AdminRepository.listCheckpoints(floor.id, includeArchived = true).filter { !it.active }.forEach { checkpoint ->
+                            add(ArchivedUiItem(checkpoint.id, "checkpoint", "Pontos", checkpoint.name, "${block.name} • ${floor.name}", Icons.Rounded.Place))
+                        }
                     }
                 }
-
-                PatrolRepository.listTemplates(includeArchived = true)
-                    .filter { !it.active }
-                    .forEach {
-                        result += ArchivedUiItem(it.id, "patrol_template", "Rondas", it.name, "Programação de ronda", Icons.Rounded.Schedule)
-                    }
-
-                result.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
-            }.onSuccess { items = it }
-                .onFailure { error = it.message ?: "Não foi possível carregar os arquivados." }
-            loading = false
-        }
+                PatrolRepository.listTemplates(includeArchived = true).filter { !it.active }.forEach {
+                    add(ArchivedUiItem(it.id, "patrol_template", "Rondas", it.name, "Programação de ronda", Icons.Rounded.Schedule))
+                }
+            }.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
+        }.onSuccess { items = it }
+            .onFailure { error = userFriendlyError(it, "Não foi possível carregar os itens arquivados.") }
+        loading = false
     }
 
-    LaunchedEffect(refresh) { load() }
-
-    val filtered = if (category == "Todos") items else items.filter { it.category == category }
+    val filtered = remember(items, category) {
+        if (category == "Todos") items else items.filter { it.category == category }
+    }
     val categories = listOf("Todos", "Porteiros", "Andares", "Pontos", "Rondas")
 
     Scaffold(
@@ -118,17 +91,10 @@ fun ArchivedScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SectionHeading(
-                    "Itens arquivados",
-                    "Restaure cadastros ou exclua definitivamente os que nunca participaram do histórico.",
-                )
+                SectionHeading("Itens arquivados", "Restaure um cadastro ou exclua definitivamente quando não houver histórico vinculado.")
             }
-
             item {
-                ExposedDropdownMenuBox(
-                    expanded = categoryOpen,
-                    onExpandedChange = { categoryOpen = !categoryOpen },
-                ) {
+                ExposedDropdownMenuBox(expanded = categoryOpen, onExpandedChange = { categoryOpen = !categoryOpen }) {
                     OutlinedTextField(
                         value = category,
                         onValueChange = {},
@@ -145,20 +111,17 @@ fun ArchivedScreen(onBack: () -> Unit) {
                     }
                 }
             }
-
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-
-            if (!loading && filtered.isEmpty()) {
+            error?.let {
                 item {
-                    EmptyStateCard(
-                        "Nada arquivado",
-                        if (category == "Todos") "Os itens arquivados aparecerão aqui." else "Nenhum item arquivado nesta categoria.",
-                        Icons.Rounded.Archive,
-                    )
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                        Text(it, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
                 }
             }
-
+            if (!loading && error == null && filtered.isEmpty()) {
+                item { EmptyStateCard("Nada arquivado", "Os itens arquivados aparecerão aqui.", Icons.Rounded.Archive) }
+            }
             items(filtered, key = { "${it.type}:${it.id}" }) { item ->
                 ArchivedItemCard(
                     item = item,
@@ -171,8 +134,8 @@ fun ArchivedScreen(onBack: () -> Unit) {
                                     "checkpoint" -> AdminRepository.restore("checkpoints", item.id)
                                     "patrol_template" -> PatrolRepository.restoreTemplate(item.id)
                                 }
-                            }.onSuccess { refresh++ }
-                                .onFailure { error = it.message }
+                            }.onSuccess { error = null; refresh++ }
+                                .onFailure { error = userFriendlyError(it, "Não foi possível restaurar este item.") }
                         }
                     },
                     onDelete = { deleteTarget = item },
@@ -187,11 +150,7 @@ fun ArchivedScreen(onBack: () -> Unit) {
             onDismissRequest = { deleteTarget = null },
             icon = { Icon(Icons.Rounded.DeleteForever, null, tint = RondaSafeColors.Danger) },
             title = { Text("Excluir definitivamente?") },
-            text = {
-                Text(
-                    "${target.name} será removido de forma permanente. Se existir histórico relacionado, o sistema bloqueará a exclusão automaticamente.",
-                )
-            },
+            text = { Text("${target.name} será removido permanentemente. Cadastros com histórico serão preservados automaticamente.") },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(
@@ -199,23 +158,19 @@ fun ArchivedScreen(onBack: () -> Unit) {
                         deleteTarget = null
                         scope.launch {
                             runCatching { AdminRepository.deleteArchived(target.type, target.id) }
-                                .onSuccess { refresh++ }
-                                .onFailure { error = it.message }
+                                .onSuccess { error = null; refresh++ }
+                                .onFailure { error = userFriendlyError(it, "Não foi possível excluir este item.") }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RondaSafeColors.Danger),
-                ) { Text("Excluir definitivamente") }
+                ) { Text("Excluir") }
             },
         )
     }
 }
 
 @Composable
-private fun ArchivedItemCard(
-    item: ArchivedUiItem,
-    onRestore: () -> Unit,
-    onDelete: () -> Unit,
-) {
+private fun ArchivedItemCard(item: ArchivedUiItem, onRestore: () -> Unit, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -226,31 +181,21 @@ private fun ArchivedItemCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(46.dp), shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(item.icon, null, tint = RondaSafeColors.Navy, modifier = Modifier.size(23.dp))
-                    }
+                    Box(contentAlignment = Alignment.Center) { Icon(item.icon, null, tint = RondaSafeColors.Navy, modifier = Modifier.size(23.dp)) }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(item.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                    Text(item.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy, maxLines = 1)
+                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 1)
                     Text(item.category, style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Blue)
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Restore, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Restaurar", maxLines = 1)
+                    Icon(Icons.Rounded.Restore, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Restaurar", maxLines = 1)
                 }
-                OutlinedButton(
-                    onClick = onDelete,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Danger),
-                ) {
-                    Icon(Icons.Rounded.DeleteForever, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Excluir", maxLines = 1)
+                OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Danger)) {
+                    Icon(Icons.Rounded.DeleteForever, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Excluir", maxLines = 1)
                 }
             }
         }
