@@ -70,7 +70,7 @@ fun AdminDashboardScreenV3(
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             item {
-                PremiumHeroCard(
+                CondoPhotoHeroCard(
                     title = metrics.condominium,
                     subtitle = "Gestão de rondas e segurança",
                 )
