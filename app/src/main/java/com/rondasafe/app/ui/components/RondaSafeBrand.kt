@@ -3,6 +3,7 @@ package com.rondasafe.app.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 object RondaSafeColors {
@@ -106,17 +108,24 @@ fun RondaSafeBrand(
         Spacer(Modifier.height(14.dp))
         Text(
             text = "RondaSafe",
-            style = MaterialTheme.typography.headlineLarge,
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.ExtraBold,
             color = textColor,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
         )
         if (showTagline) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = "SEGURANÇA QUE MANTÉM O CONDOMÍNIO EM MOVIMENTO",
+                modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor.copy(alpha = 0.68f),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
             )
         }
     }
