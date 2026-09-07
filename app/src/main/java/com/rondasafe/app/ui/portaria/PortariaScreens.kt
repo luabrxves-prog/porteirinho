@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,9 +36,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +71,7 @@ import com.rondasafe.app.data.model.FinishPatrolDto
 import com.rondasafe.app.data.model.PatrolRunDto
 import com.rondasafe.app.data.model.PortariaGuardDto
 import com.rondasafe.app.data.model.ShiftDto
+import com.rondasafe.app.data.repository.OccurrenceRepository
 import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.admin.AppTopBar
 import com.rondasafe.app.ui.components.RondaSafeColors
@@ -421,11 +425,60 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
 @Composable
 fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (FinishPatrolDto) -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var visited by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf("Aproxime o QR Code do ponto") }
     var error by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
+    var lastQr by remember { mutableStateOf<String?>(null) }
+    var lastQrAt by remember { mutableStateOf(0L) }
+    var occurrenceOpen by remember { mutableStateOf(false) }
+    var occurrenceText by remember { mutableStateOf("") }
+    var occurrenceSaving by remember { mutableStateOf(false) }
     val progress = if (run.requiredPoints <= 0) 0f else visited.toFloat() / run.requiredPoints.toFloat()
+
+    if (occurrenceOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!occurrenceSaving) occurrenceOpen = false },
+            title = { Text("Registrar ocorrência") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Descreva algo diferente, suspeito ou que precise ser comunicado ao administrador.")
+                    OutlinedTextField(
+                        value = occurrenceText,
+                        onValueChange = { if (it.length <= 1000) occurrenceText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Descrição da ocorrência") },
+                        minLines = 4,
+                        maxLines = 7,
+                        supportingText = { Text("${occurrenceText.length}/1000") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = occurrenceText.trim().length >= 3 && !occurrenceSaving,
+                    onClick = {
+                        scope.launch {
+                            occurrenceSaving = true
+                            error = null
+                            runCatching { OccurrenceRepository.report(context, run.runId, occurrenceText) }
+                                .onSuccess {
+                                    occurrenceText = ""
+                                    occurrenceOpen = false
+                                    message = "Ocorrência registrada. Ela será enviada ao administrador."
+                                }
+                                .onFailure { error = it.message }
+                            occurrenceSaving = false
+                        }
+                    },
+                ) { Text(if (occurrenceSaving) "Salvando..." else "Registrar") }
+            },
+            dismissButton = {
+                TextButton(enabled = !occurrenceSaving, onClick = { occurrenceOpen = false }) { Text("Cancelar") }
+            },
+        )
+    }
 
     Scaffold(containerColor = Color(0xFF081018), topBar = { AppTopBar(patrolName) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().background(Color(0xFF081018))) {
@@ -447,23 +500,29 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
             ) {
                 QrCameraScanner(
                     modifier = Modifier.fillMaxSize(),
-                    enabled = !processing,
+                    enabled = !processing && !occurrenceOpen,
                     onQr = { qr ->
-                        processing = true
-                        scope.launch {
-                            runCatching { PortariaRepository.scan(run.runId, qr, SystemClock.elapsedRealtime()) }
-                                .onSuccess {
-                                    visited = it.visitedPoints
-                                    message = when (it.scanResult) {
-                                        "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado"
-                                        "DUPLICATE" -> "Este ponto já foi lido"
-                                        "REVOKED_QR" -> "QR Code revogado"
-                                        "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
-                                        else -> "QR Code não reconhecido"
+                        val now = SystemClock.elapsedRealtime()
+                        val repeatedTooSoon = qr == lastQr && now - lastQrAt < 15_000L
+                        if (!repeatedTooSoon) {
+                            lastQr = qr
+                            lastQrAt = now
+                            processing = true
+                            scope.launch {
+                                runCatching { PortariaRepository.scan(run.runId, qr, now) }
+                                    .onSuccess {
+                                        visited = it.visitedPoints
+                                        message = when (it.scanResult) {
+                                            "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado"
+                                            "DUPLICATE" -> "Este ponto já foi lido"
+                                            "REVOKED_QR" -> "QR Code revogado"
+                                            "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
+                                            else -> "QR Code não reconhecido"
+                                        }
                                     }
-                                }
-                                .onFailure { error = it.message }
-                            processing = false
+                                    .onFailure { error = it.message }
+                                processing = false
+                            }
                         }
                     },
                 )
@@ -471,8 +530,15 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
 
             error?.let { Text(it, color = Color(0xFFFF8C8C), modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
             OfflineSyncStatusBanner(Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+            OutlinedButton(
+                onClick = { occurrenceOpen = true },
+                enabled = !processing,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp).fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("Registrar ocorrência", fontWeight = FontWeight.Bold) }
             Button(
                 onClick = { scope.launch { runCatching { PortariaRepository.finishPatrol(run.runId) }.onSuccess(onFinished).onFailure { error = it.message } } },
+                enabled = !processing && !occurrenceSaving,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
             ) { Text("Finalizar ronda", fontWeight = FontWeight.Bold) }
