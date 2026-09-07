@@ -11,12 +11,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // A operação do condomínio usa o fuso America/Sao_Paulo. Definir o fuso
-        // explicitamente evita que builds/aparelhos configurados em UTC exibam +3h.
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
 
-        // Não faça I/O, Keystore, Room ou rede antes da primeira tela. O bootstrap
-        // operacional é carregado em background dentro de RondaSafeApp.
+        // Esta versão de homologação precisa iniciar limpa mesmo quando instalada
+        // por cima de builds anteriores. O reset roda uma única vez por instalação
+        // desta versão e preserva somente o usuário admin que está no Supabase.
+        TestCleanReset.runOnce(applicationContext)
+
         setContent {
             RondaSafeTheme {
                 RondaSafeApp()
