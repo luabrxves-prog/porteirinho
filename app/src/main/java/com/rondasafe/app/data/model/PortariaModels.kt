@@ -13,7 +13,7 @@ data class PortariaGuardDto(
 
 @Serializable
 data class DeviceProvisionRequest(
-    val action: String = "provision_portaria",
+    val action: String,
     @SerialName("installation_id") val installationId: String,
     @SerialName("building_id") val buildingId: String,
     val name: String,

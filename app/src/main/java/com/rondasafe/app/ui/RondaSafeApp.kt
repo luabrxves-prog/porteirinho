@@ -1,5 +1,6 @@
 package com.rondasafe.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,6 +76,71 @@ fun RondaSafeApp() {
     var activePatrol by remember { mutableStateOf<AvailablePatrolDto?>(null) }
     var run by remember { mutableStateOf<PatrolRunDto?>(null) }
     var finishResult by remember { mutableStateOf<FinishPatrolDto?>(null) }
+
+    fun returnToGuardSelection() {
+        PortariaRepository.clearGuardSession()
+        selectedGuard = null
+        shift = null
+        activePatrol = null
+        run = null
+        finishResult = null
+        screen = AppScreen.GUARD_SELECTION
+    }
+
+    BackHandler(enabled = screen != AppScreen.ENTRY) {
+        when (screen) {
+            AppScreen.ADMIN_LOGIN,
+            AppScreen.ADMIN_DASHBOARD,
+            AppScreen.GUARD_SELECTION,
+            -> screen = AppScreen.ENTRY
+
+            AppScreen.ALERTS,
+            AppScreen.PATROL_HISTORY,
+            AppScreen.PATROL_ASSIGNMENTS,
+            AppScreen.OFFLINE_SYNC,
+            AppScreen.ARCHIVED,
+            AppScreen.LOCATIONS,
+            AppScreen.GUARDS,
+            AppScreen.PATROLS,
+            AppScreen.DEVICE_PROVISION,
+            -> screen = AppScreen.ADMIN_DASHBOARD
+
+            AppScreen.CHECKPOINTS -> {
+                selection = selection.copy(floor = null, checkpoint = null)
+                screen = AppScreen.LOCATIONS
+            }
+
+            AppScreen.CHECKPOINT_DETAIL -> {
+                selection = selection.copy(checkpoint = null)
+                screen = AppScreen.CHECKPOINTS
+            }
+
+            AppScreen.PATROL_CREATE,
+            AppScreen.PATROL_EDIT,
+            -> {
+                selectedPatrolTemplate = null
+                screen = AppScreen.PATROLS
+            }
+
+            AppScreen.GUARD_PIN -> {
+                selectedGuard = null
+                screen = AppScreen.GUARD_SELECTION
+            }
+
+            AppScreen.GUARD_CHANGE_PIN,
+            AppScreen.SHIFT_HOME,
+            -> returnToGuardSelection()
+
+            // Um turno ou uma ronda em andamento deve ser encerrado pela ação
+            // correspondente da tela, evitando perda acidental de estado.
+            AppScreen.AVAILABLE_PATROLS,
+            AppScreen.PATROL_SCANNER,
+            -> Unit
+
+            AppScreen.PATROL_FINISHED -> returnToGuardSelection()
+            AppScreen.ENTRY -> Unit
+        }
+    }
 
     when (screen) {
         AppScreen.ENTRY -> EntryScreen(
@@ -182,7 +248,10 @@ fun RondaSafeApp() {
             onSuccess = { mustChange ->
                 screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME
             },
-            onBack = { screen = AppScreen.GUARD_SELECTION },
+            onBack = {
+                selectedGuard = null
+                screen = AppScreen.GUARD_SELECTION
+            },
         )
         AppScreen.GUARD_CHANGE_PIN -> ChangeGuardPinScreen(onChanged = { screen = AppScreen.SHIFT_HOME })
         AppScreen.SHIFT_HOME -> ShiftHomeScreen(
@@ -190,7 +259,7 @@ fun RondaSafeApp() {
                 shift = it
                 screen = AppScreen.AVAILABLE_PATROLS
             },
-            onBack = { screen = AppScreen.GUARD_SELECTION },
+            onBack = { returnToGuardSelection() },
         )
         AppScreen.AVAILABLE_PATROLS -> AvailablePatrolsScreen(
             shift = requireNotNull(shift),

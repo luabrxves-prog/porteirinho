@@ -63,6 +63,10 @@ object PortariaRepository {
         OfflineCredentialVault.remove(context, DEVICE_SECRET_KEY)
     }
 
+    fun clearGuardSession() {
+        guardSession = null
+    }
+
     suspend fun provisionDevice(request: DeviceProvisionRequest): DeviceProvisionResponse {
         val response = client.functions.invoke(function = "admin-devices", body = request)
         val payload = response.body<DeviceProvisionResponse>()

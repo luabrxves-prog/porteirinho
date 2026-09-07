@@ -105,6 +105,7 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                         runCatching {
                             PortariaRepository.provisionDevice(
                                 DeviceProvisionRequest(
+                                    action = "provision_portaria",
                                     installationId = installationId,
                                     buildingId = building.id,
                                     name = name.trim(),
