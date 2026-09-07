@@ -88,6 +88,9 @@ data class AvailablePatrolDto(
     @SerialName("available_until") val availableUntil: String,
     @SerialName("is_late") val isLate: Boolean,
     @SerialName("required_points") val requiredPoints: Int,
+    @SerialName("execution_status") val executionStatus: String = "AVAILABLE",
+    @SerialName("finished_at") val finishedAt: String? = null,
+    @SerialName("executed_by_guard_name") val executedByGuardName: String? = null,
 )
 @Serializable
 data class AvailablePatrolsResponse(val patrols: List<AvailablePatrolDto> = emptyList(), val error: String? = null)
