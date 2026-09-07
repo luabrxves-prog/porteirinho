@@ -45,18 +45,19 @@ class OfflineSyncWorker(
 
     companion object {
         private const val UNIQUE_WORK = "rondasafe-offline-sync"
-        private const val MAX_PARENT_RETRIES = 3
+        private const val MAX_PARENT_RETRIES = 6
         private val json = Json { ignoreUnknownKeys = true }
         private val foregroundSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        /**
-         * Processa a fila inteira. Respostas HTTP do servidor (4xx/5xx) não são
-         * confundidas com falta de internet: o JSON retornado pela Edge Function
-         * é lido a partir do RestException e tratado conforme retryable.
-         */
         suspend fun syncPending(context: Context): Result {
             val appContext = context.applicationContext
             val dao = OfflineDatabase.get(appContext).offlineDao()
+
+            // Versões antigas podiam marcar como permanente apenas porque o mesmo
+            // aparelho foi reprovisionado e ganhou outro device_id. O backend atual
+            // consegue recuperar esses casos com segurança (mesmo condomínio + porteiro),
+            // então reabrimos somente esse tipo específico de falha.
+            dao.recoverLegacyCompatibilityFailures()
 
             PortariaRepository.restoreDeviceCredential(appContext)
             val device = PortariaRepository.deviceCredential ?: return Result.success()
@@ -144,8 +145,7 @@ class OfflineSyncWorker(
                     if (parentNotSynced && event.attempts >= MAX_PARENT_RETRIES - 1) {
                         dao.markPermanentFailure(
                             event.clientEventId,
-                            "Registro antigo incompatível com a configuração atual do aparelho ($errorCode). " +
-                                "Ele foi isolado e não bloqueia mais os novos registros.",
+                            "Falha de vínculo não recuperada após várias tentativas ($errorCode).",
                         )
                         continue
                     }
@@ -161,11 +161,6 @@ class OfflineSyncWorker(
             }
         }
 
-        /**
-         * Caminho normal: tenta enviar imediatamente em I/O, sem bloquear a UI.
-         * O WorkManager continua como fallback durável caso a rede caia, o processo
-         * seja encerrado ou a tentativa imediata falhe.
-         */
         fun schedule(context: Context, force: Boolean = false) {
             val appContext = context.applicationContext
 
