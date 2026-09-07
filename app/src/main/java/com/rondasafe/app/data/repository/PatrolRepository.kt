@@ -68,7 +68,7 @@ object PatrolRepository {
 
         existing.filter { it.active && it.guardId !in guardIds }.forEach { assignment ->
             client.from("patrol_schedule_assignments").update(
-                ArchiveDto(archivedAt = now, archivedBy = adminId)
+                ArchiveDto(active = false, archivedAt = now, archivedBy = adminId)
             ) { filter { eq("id", assignment.id) } }
         }
 
@@ -83,7 +83,7 @@ object PatrolRepository {
                     )
                 )
             } else if (!assignment.active) {
-                client.from("patrol_schedule_assignments").update(RestoreDto()) {
+                client.from("patrol_schedule_assignments").update(RestoreDto(active = true)) {
                     filter { eq("id", assignment.id) }
                 }
             }
@@ -124,14 +124,8 @@ object PatrolRepository {
         require(days.any { it.enabled }) { "Selecione ao menos um dia da semana." }
         require(lateToleranceMinutes in 0..1440) { "Tolerância inválida." }
 
-        val effectiveCheckpointIds = if (checkpointIds.isEmpty()) {
-            allActiveCheckpointIds(buildingId)
-        } else {
-            checkpointIds.distinct()
-        }
-        require(effectiveCheckpointIds.isNotEmpty()) {
-            "Cadastre pelo menos um ponto de ronda antes de criar a programação."
-        }
+        val effectiveCheckpointIds = if (checkpointIds.isEmpty()) allActiveCheckpointIds(buildingId) else checkpointIds.distinct()
+        require(effectiveCheckpointIds.isNotEmpty()) { "Cadastre pelo menos um ponto de ronda antes de criar a programação." }
 
         val enabledDays = days.filter { it.enabled }
         enabledDays.forEach { day ->
@@ -154,11 +148,8 @@ object PatrolRepository {
                     })
                 }
             })
-            put("p_checkpoint_ids", buildJsonArray {
-                effectiveCheckpointIds.forEach { add(JsonPrimitive(it)) }
-            })
+            put("p_checkpoint_ids", buildJsonArray { effectiveCheckpointIds.forEach { add(JsonPrimitive(it)) } })
         }
-
         return client.postgrest.rpc("save_patrol_template", params).decodeSingle<String>()
     }
 
@@ -170,27 +161,19 @@ object PatrolRepository {
         days: List<PatrolDayConfig>,
         checkpointIds: List<String> = emptyList(),
     ): PatrolTemplateDto {
-        val id = saveTemplate(
-            buildingId = buildingId,
-            name = name,
-            description = description,
-            lateToleranceMinutes = lateToleranceMinutes,
-            days = days,
-            checkpointIds = checkpointIds,
-        )
+        val id = saveTemplate(buildingId = buildingId, name = name, description = description, lateToleranceMinutes = lateToleranceMinutes, days = days, checkpointIds = checkpointIds)
         return client.from("patrol_templates").select { filter { eq("id", id) } }.decodeSingle()
     }
 
     suspend fun archiveTemplate(templateId: String) {
         val adminId = currentAdminId()
-        val now = Instant.now().toString()
         client.from("patrol_templates").update(
-            ArchiveDto(archivedAt = now, archivedBy = adminId)
+            ArchiveDto(active = false, archivedAt = Instant.now().toString(), archivedBy = adminId)
         ) { filter { eq("id", templateId) } }
     }
 
     suspend fun restoreTemplate(templateId: String) {
-        client.from("patrol_templates").update(RestoreDto()) {
+        client.from("patrol_templates").update(RestoreDto(active = true)) {
             filter { eq("id", templateId) }
         }
     }
