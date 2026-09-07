@@ -148,7 +148,7 @@ object AdminRepository {
 
     suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
         client.from("alerts").select {
-            if (!includeResolved) filter { isNull("resolved_at") }
+            if (!includeResolved) filter { exact("resolved_at", null) }
         }.decodeList<AlertDto>().sortedByDescending { it.createdAt }
 
     suspend fun markAlertRead(alertId: String) {
