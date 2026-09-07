@@ -1,50 +1,27 @@
 package com.rondasafe.app.ui.admin
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Apartment
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.BlockDto
 import com.rondasafe.app.data.model.BuildingDto
 import com.rondasafe.app.data.model.FloorDto
 import com.rondasafe.app.data.repository.AdminRepository
-import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -57,147 +34,120 @@ fun SimplifiedLocationsScreen(
     var blocks by remember { mutableStateOf<List<BlockDto>>(emptyList()) }
     var selectedBlock by remember { mutableStateOf<BlockDto?>(null) }
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
-    var includeArchived by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     var addFloorOpen by remember { mutableStateOf(false) }
+    var archiveTarget by remember { mutableStateOf<FloorDto?>(null) }
 
     LaunchedEffect(refresh) {
         loading = true
         error = null
         runCatching {
             val condominium = AdminRepository.condominium()
-            val defaultBlocks = AdminRepository.defaultBlocks()
-            condominium to defaultBlocks
+            condominium to AdminRepository.defaultBlocks()
         }.onSuccess { (condominium, defaultBlocks) ->
             building = condominium
             blocks = defaultBlocks
-            if (selectedBlock == null || defaultBlocks.none { it.id == selectedBlock?.id }) {
-                selectedBlock = defaultBlocks.firstOrNull()
-            }
-        }.onFailure { error = it.message ?: "Não foi possível carregar os locais." }
+            if (selectedBlock == null || defaultBlocks.none { it.id == selectedBlock?.id }) selectedBlock = defaultBlocks.firstOrNull()
+        }.onFailure { error = it.message }
         loading = false
     }
 
-    LaunchedEffect(selectedBlock?.id, includeArchived, refresh) {
+    LaunchedEffect(selectedBlock?.id, refresh) {
         val block = selectedBlock ?: return@LaunchedEffect
-        runCatching { AdminRepository.listFloors(block.id, includeArchived) }
+        runCatching { AdminRepository.listFloors(block.id, includeArchived = false).filter { it.active } }
             .onSuccess { floors = it }
-            .onFailure { error = it.message ?: "Não foi possível carregar os andares." }
+            .onFailure { error = it.message }
     }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { AppTopBar("Locais e QR Codes", onBack) },
+        topBar = { PremiumTopBar("Locais e QR Codes", onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(
+                SectionHeading(
                     building?.name ?: "Condomínio",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = RondaSafeColors.Muted,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Escolha o bloco e gerencie apenas andares, pontos e QR Codes.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = RondaSafeColors.Muted,
+                    "Organize os andares e pontos de controle de cada bloco.",
                 )
             }
 
             item {
-                Row(
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
                 ) {
-                    blocks.forEach { block ->
-                        FilterChip(
-                            selected = selectedBlock?.id == block.id,
-                            onClick = { selectedBlock = block },
-                            label = { Text(block.name, fontWeight = FontWeight.SemiBold) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = RondaSafeColors.BlueSoft,
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Andares", style = MaterialTheme.typography.titleMedium, color = RondaSafeColors.Navy)
-                            Text(
-                                if (floors.isEmpty()) "Cadastre o primeiro andar deste bloco."
-                                else "${floors.count { it.active }} andar(es) ativo(s)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = RondaSafeColors.Muted,
-                            )
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Apartment, null, tint = RondaSafeColors.Blue)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Bloco", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
                         }
-                        Text("Arquivados")
-                        Spacer(Modifier.width(8.dp))
-                        Switch(checked = includeArchived, onCheckedChange = { includeArchived = it })
-                    }
-                }
-            }
-
-            if (loading) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-            }
-
-            error?.let { message ->
-                item { Text(message, color = MaterialTheme.colorScheme.error) }
-            }
-
-            if (!loading && floors.isEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    ) {
-                        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Nenhum andar cadastrado", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Adicione os andares e, dentro de cada um, os pontos que receberão QR Code.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = RondaSafeColors.Muted,
-                            )
-                            Spacer(Modifier.height(14.dp))
-                            Button(onClick = { addFloorOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Adicionar primeiro andar")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            blocks.forEach { block ->
+                                FilterChip(
+                                    selected = selectedBlock?.id == block.id,
+                                    onClick = { selectedBlock = block },
+                                    label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
                     }
                 }
             }
 
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeading("Andares", "${floors.size} ativo(s)")
+                }
+            }
+
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+
+            if (!loading && floors.isEmpty()) {
+                item { EmptyStateCard("Nenhum andar cadastrado", "Adicione o primeiro andar deste bloco.", Icons.Rounded.Layers) }
+            }
+
             items(floors, key = { it.id }) { floor ->
-                FloorManagementCard(
-                    floor = floor,
-                    onOpen = {
-                        val condominium = building ?: return@FloorManagementCard
-                        val block = selectedBlock ?: return@FloorManagementCard
+                Card(
+                    onClick = {
+                        val condominium = building ?: return@Card
+                        val block = selectedBlock ?: return@Card
                         onOpenFloor(condominium, block, floor)
                     },
-                    onChanged = { refresh++ },
-                )
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(modifier = Modifier.size(42.dp), shape = RoundedCornerShape(13.dp), color = RondaSafeColors.BlueSoft) {
+                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Layers, null, tint = RondaSafeColors.Navy) }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(floor.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                            Text("Gerenciar pontos e QR Codes", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                        }
+                        IconButton(onClick = { archiveTarget = floor }) {
+                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar", tint = RondaSafeColors.Muted)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
+                    }
+                }
             }
 
             item {
@@ -207,9 +157,11 @@ fun SimplifiedLocationsScreen(
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("+ Adicionar andar")
+                    Icon(Icons.Rounded.Add, null)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Adicionar andar", fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(18.dp))
             }
         }
     }
@@ -226,82 +178,19 @@ fun SimplifiedLocationsScreen(
             },
         )
     }
-}
 
-@Composable
-private fun FloorManagementCard(
-    floor: FloorDto,
-    onOpen: () -> Unit,
-    onChanged: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var confirmArchive by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (floor.active) RondaSafeColors.GreenSoft else RondaSafeColors.Border,
-                ) {
-                    Text(
-                        if (floor.active) "ATIVO" else "ARQUIVADO",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (floor.active) RondaSafeColors.Green else RondaSafeColors.Muted,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Text(floor.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            }
-
-            if (floor.active) {
-                Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-                    Text("Gerenciar pontos e QR Codes")
-                }
-                OutlinedButton(
-                    onClick = { confirmArchive = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Arquivar andar")
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            runCatching { AdminRepository.restore("floors", floor.id) }
-                                .onSuccess { onChanged() }
-                                .onFailure { error = it.message }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Restaurar andar")
-                }
-            }
-
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-    }
-
-    if (confirmArchive) {
+    archiveTarget?.let { floor ->
         AlertDialog(
-            onDismissRequest = { confirmArchive = false },
+            onDismissRequest = { archiveTarget = null },
             title = { Text("Arquivar ${floor.name}?") },
-            text = { Text("O histórico será preservado. O andar deixará de aparecer na operação normal.") },
-            dismissButton = { TextButton(onClick = { confirmArchive = false }) { Text("Cancelar") } },
+            text = { Text("O andar sairá da lista ativa e ficará disponível em Arquivados.") },
+            dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
-                    confirmArchive = false
+                    archiveTarget = null
                     scope.launch {
                         runCatching { AdminRepository.archive("floors", floor.id) }
-                            .onSuccess { onChanged() }
+                            .onSuccess { refresh++ }
                             .onFailure { error = it.message }
                     }
                 }) { Text("Arquivar") }
@@ -344,15 +233,12 @@ private fun AddFloorDialog(
                     scope.launch {
                         loading = true
                         error = null
-                        runCatching { onConfirm(name.trim()) }
-                            .onFailure { error = it.message }
+                        runCatching { onConfirm(name.trim()) }.onFailure { error = it.message }
                         loading = false
                     }
                 },
                 enabled = name.isNotBlank() && !loading,
-            ) {
-                Text(if (loading) "Salvando..." else "Adicionar")
-            }
+            ) { Text(if (loading) "Salvando..." else "Adicionar") }
         },
     )
 }
