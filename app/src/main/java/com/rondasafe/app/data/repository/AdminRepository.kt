@@ -5,7 +5,10 @@ import com.rondasafe.app.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.call.body
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 
 object AdminRepository {
@@ -124,6 +127,16 @@ object AdminRepository {
         client.from(table).update(RestoreDto()) {
             filter { eq("id", id) }
         }
+    }
+
+    suspend fun deleteArchived(entityType: String, id: String) {
+        client.postgrest.rpc(
+            function = "admin_delete_archived_entity",
+            parameters = buildJsonObject {
+                put("p_entity_type", entityType)
+                put("p_id", id)
+            },
+        )
     }
 
     suspend fun getActiveQr(checkpointId: String): ActiveQrDto? {
