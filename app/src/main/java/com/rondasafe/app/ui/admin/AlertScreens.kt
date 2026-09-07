@@ -13,16 +13,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.model.AlertDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-
-private val alertZone = ZoneId.of("America/Sao_Paulo")
-private val alertDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm")
 
 @Composable
 fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
@@ -135,7 +130,7 @@ private fun AlertCard(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(alert.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-            Text(alertDate(alert.createdAt), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+            Text(AppTime.dateTime(alert.createdAt), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
             Surface(shape = RoundedCornerShape(50), color = severityColor.copy(alpha = .12f)) {
                 Text(
                     if (showResolved) "Resolvido" else alertTypeLabel(alert.alertType),
@@ -165,10 +160,6 @@ private fun AlertCard(
         }
     }
 }
-
-private fun alertDate(value: String): String = runCatching {
-    Instant.parse(value).atZone(alertZone).format(alertDateFormatter)
-}.getOrElse { value }
 
 private fun alertTypeLabel(type: String): String = when (type) {
     "PATROL_NOT_STARTED" -> "Ronda não realizada"
