@@ -45,8 +45,6 @@ object PortariaRepository {
     private fun safeCredentialRead(context: Context, key: String): String? =
         runCatching { OfflineCredentialVault.get(context, key) }
             .getOrElse {
-                // Keystore pode ser invalidado por restauração/upgrade do aparelho.
-                // Remover somente a entrada ilegível evita crash loop sem tocar no DB offline.
                 runCatching { OfflineCredentialVault.remove(context, key) }
                 null
             }
@@ -184,20 +182,49 @@ object PortariaRepository {
 
     suspend fun availablePatrols(): List<AvailablePatrolDto> {
         val context = appContext
-        val guard = guardSession
-        if (context != null && guard != null && OfflineOperationalCache.hasCache(context)) {
-            return OfflineOperationalCache.availablePatrols(context, guard.guardId)
+        val guard = guardSession ?: error("Porteiro não autenticado.")
+
+        if (!guard.offline) {
+            try {
+                return invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
+            } catch (error: IOException) {
+                if (context == null || !OfflineOperationalCache.hasCache(context)) throw error
+            }
         }
-        return invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
+
+        if (context == null || !OfflineOperationalCache.hasCache(context)) return emptyList()
+        val dao = OfflineDatabase.get(context).offlineDao()
+        return OfflineOperationalCache.availablePatrols(context, guard.guardId).map { patrol ->
+            val local = dao.localOccurrence(patrol.scheduleWindowId, patrol.scheduledFor)
+            when {
+                local == null -> patrol
+                local.active -> patrol.copy(
+                    executionStatus = "IN_PROGRESS",
+                    executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
+                )
+                local.requiredPoints > 0 && local.visitedPoints >= local.requiredPoints -> patrol.copy(
+                    executionStatus = "COMPLETED",
+                    executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
+                )
+                else -> patrol.copy(
+                    executionStatus = "INCOMPLETE",
+                    executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
+                )
+            }
+        }
     }
 
     suspend fun startPatrol(shiftId: String, patrol: AvailablePatrolDto): PatrolRunDto {
+        require(patrol.executionStatus == "AVAILABLE") { "Esta ronda já foi iniciada ou finalizada neste horário." }
         val context = requireContext()
         val guard = guardSession ?: error("Porteiro não autenticado.")
         val dao = OfflineDatabase.get(context).offlineDao()
         val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
         if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido para este porteiro.")
         dao.activeLocalRun()?.let { error("Já existe uma ronda em andamento.") }
+        dao.localOccurrence(patrol.scheduleWindowId, patrol.scheduledFor)?.let {
+            error("Esta ronda já foi iniciada ou finalizada neste horário.")
+        }
 
         val eventId = UUID.randomUUID().toString()
         val startedAt = Instant.now().toString()
@@ -251,8 +278,8 @@ object PortariaRepository {
         val before = dao.localVisitCount(runId)
 
         val result: String
-        var checkpointId: String? = match?.checkpointId
-        var checkpointName: String? = match?.checkpointName
+        val checkpointId: String? = match?.checkpointId
+        val checkpointName: String? = match?.checkpointName
 
         if (match == null) {
             result = "UNKNOWN_QR"
