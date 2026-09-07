@@ -49,33 +49,29 @@ object AdminRepository {
 
     suspend fun condominium(): BuildingDto {
         val existing = listBuildings().firstOrNull()
-        if (existing != null) {
-            ensureDefaultBlocks(existing.id)
-            return existing
-        }
-        val created = createBuilding("Condomínio Solar Carlos Gomes")
-        ensureDefaultBlocks(created.id)
-        return created
+        if (existing != null) return existing
+        return createBuilding("Condomínio Solar Carlos Gomes")
     }
 
     suspend fun defaultBlocks(): List<BlockDto> {
         val building = condominium()
-        ensureDefaultBlocks(building.id)
-        return listBlocks(building.id)
+        var existing = listBlocks(building.id, includeArchived = true)
+
+        suspend fun ensure(name: String) {
+            val block = existing.firstOrNull { it.name.equals(name, true) }
+            when {
+                block == null -> createBlock(building.id, name)
+                !block.active -> restore("blocks", block.id)
+            }
+        }
+
+        ensure("Bloco A")
+        ensure("Bloco B")
+        existing = listBlocks(building.id)
+
+        return existing
             .filter { it.name.equals("Bloco A", true) || it.name.equals("Bloco B", true) }
             .sortedBy { if (it.name.equals("Bloco A", true)) 1 else 2 }
-    }
-
-    suspend fun ensureDefaultBlocks(buildingId: String) {
-        val existing = listBlocks(buildingId, includeArchived = true)
-        val blockA = existing.firstOrNull { it.name.equals("Bloco A", true) }
-        val blockB = existing.firstOrNull { it.name.equals("Bloco B", true) }
-
-        if (blockA == null) createBlock(buildingId, "Bloco A")
-        else if (!blockA.active) restore("blocks", blockA.id)
-
-        if (blockB == null) createBlock(buildingId, "Bloco B")
-        else if (!blockB.active) restore("blocks", blockB.id)
     }
 
     suspend fun createBuilding(name: String): BuildingDto {
@@ -118,9 +114,7 @@ object AdminRepository {
         val now = Instant.now().toString()
         client.from(table).update(
             ArchiveDto(active = false, archivedAt = now, archivedBy = adminId)
-        ) {
-            filter { eq("id", id) }
-        }
+        ) { filter { eq("id", id) } }
     }
 
     suspend fun restore(table: String, id: String) {
@@ -153,9 +147,9 @@ object AdminRepository {
     suspend fun replaceQr(checkpointId: String): QrFunctionResponse = invokeQr("replace", checkpointId)
 
     suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
-        client.from("alerts").select().decodeList<AlertDto>()
-            .filter { includeResolved || it.resolvedAt == null }
-            .sortedByDescending { it.createdAt }
+        client.from("alerts").select {
+            if (!includeResolved) filter { isNull("resolved_at") }
+        }.decodeList<AlertDto>().sortedByDescending { it.createdAt }
 
     suspend fun markAlertRead(alertId: String) {
         client.from("alerts").update(AlertReadDto(readAt = Instant.now().toString())) {
@@ -166,9 +160,7 @@ object AdminRepository {
     suspend fun resolveAlert(alertId: String) {
         client.from("alerts").update(
             AlertResolveDto(resolvedAt = Instant.now().toString(), resolvedBy = currentAdminId())
-        ) {
-            filter { eq("id", alertId) }
-        }
+        ) { filter { eq("id", alertId) } }
     }
 
     private suspend fun invokeQr(action: String, checkpointId: String): QrFunctionResponse {
