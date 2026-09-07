@@ -483,7 +483,7 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
     Scaffold(containerColor = Color(0xFF081018), topBar = { AppTopBar(patrolName) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().background(Color(0xFF081018))) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-                Text("Ponto ${minOf(visited + 1, run.requiredPoints)} de ${run.requiredPoints}", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("$visited de ${run.requiredPoints} pontos confirmados", color = Color.White, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = RondaSafeColors.Blue, trackColor = Color.White.copy(alpha = 0.12f))
                 Spacer(Modifier.height(12.dp))
