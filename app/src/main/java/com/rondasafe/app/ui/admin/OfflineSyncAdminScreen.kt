@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.local.PendingEventEntity
@@ -108,7 +109,7 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
                 ) {
                     Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(event.type, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                        Text(event.createdAtLocal, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                        Text(AppTime.dateTime(event.createdAtLocal), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                         Text("Tentativas: ${event.attempts}", style = MaterialTheme.typography.bodySmall)
                         Text(event.lastError ?: "Sem detalhe de erro", color = RondaSafeColors.Danger, style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(
