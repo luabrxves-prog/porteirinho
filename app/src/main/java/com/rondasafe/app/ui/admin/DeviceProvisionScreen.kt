@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.model.BuildingDto
 import com.rondasafe.app.data.model.DeviceProvisionRequest
 import com.rondasafe.app.data.repository.AdminRepository
@@ -23,13 +24,23 @@ import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+private const val INSTALLATION_PREFS = "rondasafe_installation"
+private const val INSTALLATION_ID_KEY = "installation_id"
+
+private fun installationId(context: android.content.Context): String {
+    val prefs = context.getSharedPreferences(INSTALLATION_PREFS, android.content.Context.MODE_PRIVATE)
+    return prefs.getString(INSTALLATION_ID_KEY, null) ?: UUID.randomUUID().toString().also {
+        prefs.edit().putString(INSTALLATION_ID_KEY, it).apply()
+    }
+}
+
 @Composable
 fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var condominium by remember { mutableStateOf<BuildingDto?>(null) }
     var name by remember { mutableStateOf("Portaria Principal") }
-    val installationId = remember { UUID.randomUUID().toString() }
+    val installationId = remember { installationId(context.applicationContext) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var initialLoading by remember { mutableStateOf(true) }
@@ -115,6 +126,7 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                                 )
                             )
                             PortariaRepository.persistDeviceCredential(context)
+                            OfflineSyncWorker.schedule(context, force = true)
                         }.onSuccess { onProvisioned() }.onFailure { error = it.message }
                         loading = false
                     }
