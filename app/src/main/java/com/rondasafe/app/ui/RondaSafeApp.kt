@@ -3,12 +3,17 @@ package com.rondasafe.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AuthRepository
@@ -16,6 +21,7 @@ import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.admin.*
 import com.rondasafe.app.ui.components.RondaSafeBrand
 import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.SkylineIllustration
 import com.rondasafe.app.ui.portaria.*
 
 data class AdminSelection(
@@ -33,6 +39,7 @@ enum class AppScreen {
     PATROL_HISTORY,
     PATROL_ASSIGNMENTS,
     OFFLINE_SYNC,
+    ARCHIVED,
     LOCATIONS,
     CHECKPOINTS,
     CHECKPOINT_DETAIL,
@@ -78,6 +85,7 @@ fun RondaSafeApp() {
             onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
             onOpenAlerts = { screen = AppScreen.ALERTS },
             onOpenSync = { screen = AppScreen.OFFLINE_SYNC },
+            onOpenArchived = { screen = AppScreen.ARCHIVED },
             onOpenDeviceProvision = { screen = AppScreen.DEVICE_PROVISION },
             onLogout = { screen = AppScreen.ENTRY; selection = AdminSelection() },
         )
@@ -86,6 +94,7 @@ fun RondaSafeApp() {
         AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.ARCHIVED -> ArchivedScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
 
         AppScreen.LOCATIONS -> SimplifiedLocationsScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
@@ -164,59 +173,131 @@ fun RondaSafeApp() {
 @Composable
 private fun EntryScreen(portariaEnabled: Boolean, onPortaria: () -> Unit, onAdmin: () -> Unit) {
     Box(
-        Modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(RondaSafeColors.Navy),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF073455), Color(0xFF062B46), Color(0xFF031E32)),
+                ),
+            ),
     ) {
+        SkylineIllustration(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(330.dp),
+        )
+
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(360.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color(0xAA031E32), Color(0xF2031E32)),
+                    ),
+                ),
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 28.dp),
+                .padding(horizontal = 20.dp, vertical = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.weight(0.7f))
+            Spacer(Modifier.height(48.dp))
             RondaSafeBrand(
-                modifier = Modifier.width(190.dp),
+                modifier = Modifier.width(210.dp),
                 darkBackground = true,
-                showTagline = true,
+                showTagline = false,
             )
-            Spacer(Modifier.weight(0.65f))
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Button(
-                    onClick = onPortaria,
-                    enabled = portariaEnabled,
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Entrar como Portaria", fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = onAdmin,
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = RondaSafeColors.Navy),
-                ) {
-                    Text("Entrar como Administrador", fontWeight = FontWeight.Bold)
-                }
-                if (!portariaEnabled) {
-                    Text(
-                        "Este celular ainda não está configurado como portaria.",
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.72f),
-                    )
-                }
-            }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
             Text(
-                "Condomínios mais seguros com tecnologia simples.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.62f),
+                "Segurança em\nboa companhia",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = .82f),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Medium,
             )
+
+            Spacer(Modifier.weight(1f))
+
+            AccessCard(
+                title = "Entrar como Portaria",
+                icon = { Icon(Icons.Rounded.Badge, null, tint = Color.White) },
+                enabled = portariaEnabled,
+                onClick = onPortaria,
+            )
+            Spacer(Modifier.height(10.dp))
+            AccessCard(
+                title = "Entrar como Administrador",
+                icon = { Icon(Icons.Rounded.AdminPanelSettings, null, tint = Color.White) },
+                enabled = true,
+                onClick = onAdmin,
+            )
+
+            Spacer(Modifier.height(14.dp))
+            if (!portariaEnabled) {
+                Text(
+                    "Este celular ainda não está configurado como portaria.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = .70f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            Text(
+                "Condomínios mais seguros com tecnologia.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = .66f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun AccessCard(
+    title: String,
+    icon: @Composable () -> Unit,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled) Color.White else Color.White.copy(alpha = .88f),
+            disabledContainerColor = Color.White.copy(alpha = .72f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = RoundedCornerShape(13.dp),
+                color = if (enabled) RondaSafeColors.Navy else RondaSafeColors.Muted,
+            ) {
+                Box(contentAlignment = Alignment.Center) { icon() }
+            }
+            Spacer(Modifier.width(13.dp))
+            Text(
+                title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) RondaSafeColors.Navy else RondaSafeColors.Muted,
+            )
+            Text("›", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Navy)
         }
     }
 }
