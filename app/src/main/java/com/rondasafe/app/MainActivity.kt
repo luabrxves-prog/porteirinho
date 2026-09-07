@@ -3,7 +3,6 @@ package com.rondasafe.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.ui.RondaSafeApp
 import com.rondasafe.app.ui.theme.RondaSafeTheme
 import java.util.TimeZone
@@ -16,9 +15,8 @@ class MainActivity : ComponentActivity() {
         // explicitamente evita que builds/aparelhos configurados em UTC exibam +3h.
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
 
-        // Credenciais locais antigas/corrompidas nunca devem impedir o app de abrir.
-        runCatching { PortariaRepository.restoreDeviceCredential(this) }
-
+        // Não faça I/O, Keystore, Room ou rede antes da primeira tela. O bootstrap
+        // operacional é carregado em background dentro de RondaSafeApp.
         setContent {
             RondaSafeTheme {
                 RondaSafeApp()
