@@ -117,14 +117,14 @@ object AdminRepository {
         val adminId = currentAdminId()
         val now = Instant.now().toString()
         client.from(table).update(
-            ArchiveDto(archivedAt = now, archivedBy = adminId)
+            ArchiveDto(active = false, archivedAt = now, archivedBy = adminId)
         ) {
             filter { eq("id", id) }
         }
     }
 
     suspend fun restore(table: String, id: String) {
-        client.from(table).update(RestoreDto()) {
+        client.from(table).update(RestoreDto(active = true)) {
             filter { eq("id", id) }
         }
     }
@@ -149,16 +149,11 @@ object AdminRepository {
         return payload.qr
     }
 
-    suspend fun createQr(checkpointId: String): QrFunctionResponse =
-        invokeQr("create", checkpointId)
-
-    suspend fun replaceQr(checkpointId: String): QrFunctionResponse =
-        invokeQr("replace", checkpointId)
+    suspend fun createQr(checkpointId: String): QrFunctionResponse = invokeQr("create", checkpointId)
+    suspend fun replaceQr(checkpointId: String): QrFunctionResponse = invokeQr("replace", checkpointId)
 
     suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
-        client.from("alerts")
-            .select()
-            .decodeList<AlertDto>()
+        client.from("alerts").select().decodeList<AlertDto>()
             .filter { includeResolved || it.resolvedAt == null }
             .sortedByDescending { it.createdAt }
 
@@ -170,22 +165,14 @@ object AdminRepository {
 
     suspend fun resolveAlert(alertId: String) {
         client.from("alerts").update(
-            AlertResolveDto(
-                resolvedAt = Instant.now().toString(),
-                resolvedBy = currentAdminId(),
-            )
+            AlertResolveDto(resolvedAt = Instant.now().toString(), resolvedBy = currentAdminId())
         ) {
             filter { eq("id", alertId) }
         }
     }
 
     private suspend fun invokeQr(action: String, checkpointId: String): QrFunctionResponse {
-        val response = client.functions.invoke(
-            function = "admin-qr",
-            body = QrFunctionRequest(action = action, checkpointId = checkpointId),
-        )
-        return response.body<QrFunctionResponse>().also {
-            it.error?.let(::error)
-        }
+        val response = client.functions.invoke(function = "admin-qr", body = QrFunctionRequest(action = action, checkpointId = checkpointId))
+        return response.body<QrFunctionResponse>().also { it.error?.let(::error) }
     }
 }
