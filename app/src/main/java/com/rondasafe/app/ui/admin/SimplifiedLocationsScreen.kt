@@ -46,20 +46,26 @@ fun SimplifiedLocationsScreen(
         error = null
         runCatching {
             val condominium = AdminRepository.condominium()
-            condominium to AdminRepository.defaultBlocks()
+            val defaultBlocks = AdminRepository.defaultBlocks()
+            condominium to defaultBlocks
         }.onSuccess { (condominium, defaultBlocks) ->
             building = condominium
             blocks = defaultBlocks
-            if (selectedBlock == null || defaultBlocks.none { it.id == selectedBlock?.id }) selectedBlock = defaultBlocks.firstOrNull()
-        }.onFailure { error = it.message }
+            selectedBlock = defaultBlocks.firstOrNull { it.id == selectedBlock?.id } ?: defaultBlocks.firstOrNull()
+        }.onFailure {
+            error = userFriendlyError(it, "Não foi possível carregar os blocos do condomínio.")
+        }
         loading = false
     }
 
     LaunchedEffect(selectedBlock?.id, refresh) {
-        val block = selectedBlock ?: return@LaunchedEffect
-        runCatching { AdminRepository.listFloors(block.id, includeArchived = false).filter { it.active } }
+        val block = selectedBlock ?: run {
+            floors = emptyList()
+            return@LaunchedEffect
+        }
+        runCatching { AdminRepository.listFloors(block.id).filter { it.active } }
             .onSuccess { floors = it }
-            .onFailure { error = it.message }
+            .onFailure { error = userFriendlyError(it, "Não foi possível carregar os andares deste bloco.") }
     }
 
     Scaffold(
@@ -74,7 +80,7 @@ fun SimplifiedLocationsScreen(
             item {
                 SectionHeading(
                     building?.name ?: "Condomínio",
-                    "Organize os andares e pontos de controle de cada bloco.",
+                    "Andares e pontos de controle organizados por bloco.",
                 )
             }
 
@@ -84,33 +90,53 @@ fun SimplifiedLocationsScreen(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = BorderStroke(1.dp, RondaSafeColors.Border),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Apartment, null, tint = RondaSafeColors.Blue)
                             Spacer(Modifier.width(8.dp))
-                            Text("Bloco", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                            Text("Escolha o bloco", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            blocks.forEach { block ->
-                                FilterChip(
-                                    selected = selectedBlock?.id == block.id,
-                                    onClick = { selectedBlock = block },
-                                    label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
-                                    modifier = Modifier.weight(1f),
-                                )
+                        if (blocks.isEmpty() && !loading) {
+                            Text("Os blocos padrão não puderam ser carregados.", color = RondaSafeColors.Muted)
+                        } else {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                blocks.take(2).forEach { block ->
+                                    FilterChip(
+                                        selected = selectedBlock?.id == block.id,
+                                        onClick = { selectedBlock = block; error = null },
+                                        label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
-            item { SectionHeading("Andares", "${floors.size} ativo(s)") }
+            item { SectionHeading("Andares", if (selectedBlock == null) "Selecione um bloco" else "${floors.size} ativo(s)") }
 
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            error?.let {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            it,
+                            modifier = Modifier.padding(14.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
 
-            if (!loading && floors.isEmpty()) {
+            if (!loading && error == null && floors.isEmpty()) {
                 item { EmptyStateCard("Nenhum andar cadastrado", "Adicione o primeiro andar deste bloco.", Icons.Rounded.Layers) }
             }
 
@@ -128,7 +154,7 @@ fun SimplifiedLocationsScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 14.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Surface(modifier = Modifier.size(42.dp), shape = RoundedCornerShape(13.dp), color = RondaSafeColors.BlueSoft) {
@@ -136,11 +162,11 @@ fun SimplifiedLocationsScreen(
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(floor.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                            Text("Gerenciar pontos e QR Codes", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                            Text(floor.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy, maxLines = 1)
+                            Text("Pontos e QR Codes", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 1)
                         }
                         IconButton(onClick = { archiveTarget = floor }) {
-                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar", tint = RondaSafeColors.Muted)
+                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar andar", tint = RondaSafeColors.Muted)
                         }
                         Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                     }
@@ -150,7 +176,7 @@ fun SimplifiedLocationsScreen(
             item {
                 Button(
                     onClick = { addFloorOpen = true },
-                    enabled = selectedBlock != null,
+                    enabled = selectedBlock != null && !loading,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -171,6 +197,7 @@ fun SimplifiedLocationsScreen(
                 val block = selectedBlock ?: error("Selecione um bloco.")
                 AdminRepository.createFloor(block.id, name)
                 addFloorOpen = false
+                error = null
                 refresh++
             },
         )
@@ -187,8 +214,8 @@ fun SimplifiedLocationsScreen(
                     archiveTarget = null
                     scope.launch {
                         runCatching { AdminRepository.archive("floors", floor.id) }
-                            .onSuccess { refresh++ }
-                            .onFailure { error = it.message }
+                            .onSuccess { error = null; refresh++ }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível arquivar este andar.") }
                     }
                 }) { Text("Arquivar") }
             },
@@ -209,16 +236,17 @@ private fun AddFloorDialog(
 
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text("Novo andar • $blockName") },
+        title = { Text("Novo andar") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Exemplos: Térreo, 1º andar, 2º andar.", color = RondaSafeColors.Muted)
+                Text("$blockName • Ex.: Térreo, 1º andar, 2º andar.", color = RondaSafeColors.Muted)
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nome do andar") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -230,7 +258,8 @@ private fun AddFloorDialog(
                     scope.launch {
                         loading = true
                         error = null
-                        runCatching { onConfirm(name.trim()) }.onFailure { error = it.message }
+                        runCatching { onConfirm(name.trim()) }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível adicionar este andar.") }
                         loading = false
                     }
                 },
