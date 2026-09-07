@@ -69,12 +69,12 @@ object GuardRepository {
     suspend fun archive(guardId: String) {
         val adminId = client.auth.currentUserOrNull()?.id ?: error("Sessão administrativa não encontrada.")
         client.from("guards").update(
-            ArchiveDto(archivedAt = Instant.now().toString(), archivedBy = adminId)
+            ArchiveDto(active = false, archivedAt = Instant.now().toString(), archivedBy = adminId)
         ) { filter { eq("id", guardId) } }
     }
 
     suspend fun restore(guardId: String) {
-        client.from("guards").update(RestoreDto()) { filter { eq("id", guardId) } }
+        client.from("guards").update(RestoreDto(active = true)) { filter { eq("id", guardId) } }
     }
 
     private suspend fun invoke(request: GuardFunctionRequest): GuardFunctionResponse {
