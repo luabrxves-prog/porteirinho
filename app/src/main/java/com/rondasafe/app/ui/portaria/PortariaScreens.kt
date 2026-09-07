@@ -66,6 +66,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.model.AvailablePatrolDto
 import com.rondasafe.app.data.model.FinishPatrolDto
 import com.rondasafe.app.data.model.PatrolRunDto
@@ -416,6 +417,7 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(patrol.patrolName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("Horário previsto: ${AppTime.time(patrol.scheduledFor)}", color = RondaSafeColors.Navy, fontWeight = FontWeight.SemiBold)
                                 Text("${patrol.requiredPoints} pontos de controle", color = RondaSafeColors.Muted)
                             }
                             Surface(shape = RoundedCornerShape(12.dp), color = statusBackground) {
