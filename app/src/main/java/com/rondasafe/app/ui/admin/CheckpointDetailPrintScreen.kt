@@ -1,37 +1,17 @@
 package com.rondasafe.app.ui.admin
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,8 +20,7 @@ import com.rondasafe.app.data.model.CheckpointDto
 import com.rondasafe.app.data.model.QrFunctionResponse
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.printing.QrPrintManager
-import com.rondasafe.app.ui.components.QrCodeImage
-import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,123 +35,85 @@ fun CheckpointDetailWithPrintScreen(checkpoint: CheckpointDto, onBack: () -> Uni
 
     fun reload() {
         scope.launch {
-            loading = true
-            error = null
+            loading = true; error = null
             runCatching { AdminRepository.getActiveQr(checkpoint.id) }
                 .onSuccess { activeQr = it }
                 .onFailure { error = it.message }
             loading = false
         }
     }
-
     LaunchedEffect(checkpoint.id) { reload() }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { AppTopBar("Ponto de controle", onBack) },
+        topBar = { PremiumTopBar("Ponto de controle", onBack) },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Column(
+            modifier = Modifier.padding(padding).padding(RondaSafeUi.ScreenPadding).fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            item {
-                Column(Modifier.fillMaxWidth()) {
-                    Text(checkpoint.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
-                    checkpoint.description?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(it, color = RondaSafeColors.Muted)
-                    }
-                }
-            }
-
-            if (loading) item { CircularProgressIndicator() }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            SectionHeading(checkpoint.name, checkpoint.description?.takeIf { it.isNotBlank() } ?: "QR Code do ponto de controle")
+            Spacer(Modifier.height(16.dp))
+            if (loading) CircularProgressIndicator()
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
             val token = newQr?.tokenValue ?: activeQr?.tokenValue
             val version = newQr?.version ?: activeQr?.version
             val fingerprint = newQr?.fingerprint ?: activeQr?.fingerprint
 
             if (token != null) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Surface(shape = RoundedCornerShape(18.dp), color = RondaSafeColors.Background) {
-                                Box(Modifier.padding(16.dp)) {
-                                    QrCodeImage(token, Modifier.size(230.dp))
-                                }
-                            }
-                            Spacer(Modifier.height(14.dp))
-                            Surface(shape = RoundedCornerShape(12.dp), color = RondaSafeColors.GreenSoft) {
-                                Text("QR ATIVO", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Green)
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text("Versão ${version ?: "-"}", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
-                            Text("ID: ${fingerprint ?: "-"}", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Surface(shape = RoundedCornerShape(50), color = RondaSafeColors.GreenSoft) {
+                            Text("QR ativo", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Green, fontWeight = FontWeight.Bold)
                         }
+                        Spacer(Modifier.height(16.dp))
+                        QrCodeImage(token, Modifier.size(230.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Text("Versão ${version ?: "-"}", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                        Text("ID ${fingerprint ?: "-"}", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                     }
                 }
-
-                item {
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = {
-                            QrPrintManager.printActiveQr(
-                                context = context,
-                                checkpointName = checkpoint.name,
-                                token = token,
-                                version = version,
-                                fingerprint = fingerprint,
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) { Text("Imprimir QR Code", fontWeight = FontWeight.Bold) }
-                }
-
-                item {
+                        onClick = { QrPrintManager.printActiveQr(context, checkpoint.name, token, version, fingerprint) },
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(15.dp),
+                    ) {
+                        Icon(Icons.Rounded.Print, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Imprimir", maxLines = 1)
+                    }
                     OutlinedButton(
                         onClick = { confirmReplace = true },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) { Text("Substituir QR Code") }
-                }
-            } else if (!loading) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = RondaSafeColors.BlueSoft,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(15.dp),
                     ) {
-                        Text("Este ponto ainda não possui QR Code.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
+                        Icon(Icons.Rounded.Sync, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Substituir", maxLines = 1)
                     }
                 }
-                item {
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                loading = true
-                                runCatching { AdminRepository.createQr(checkpoint.id) }
-                                    .onSuccess { newQr = it }
-                                    .onFailure { error = it.message }
-                                loading = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) { Text("Gerar QR Code", fontWeight = FontWeight.Bold) }
-                }
+            } else if (!loading) {
+                EmptyStateCard("QR ainda não gerado", "Gere o QR Code deste ponto para começar a utilizá-lo nas rondas.", Icons.Rounded.QrCode2)
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            loading = true
+                            runCatching { AdminRepository.createQr(checkpoint.id) }
+                                .onSuccess { newQr = it }
+                                .onFailure { error = it.message }
+                            loading = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text("Gerar QR Code", fontWeight = FontWeight.Bold) }
             }
-
-            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 
@@ -180,14 +121,13 @@ fun CheckpointDetailWithPrintScreen(checkpoint: CheckpointDto, onBack: () -> Uni
         AlertDialog(
             onDismissRequest = { confirmReplace = false },
             title = { Text("Substituir QR Code?") },
-            text = { Text("O QR atual será revogado. O histórico de leituras anteriores continua preservado.") },
+            text = { Text("O QR atual será revogado. O histórico de leituras anteriores continuará preservado.") },
             dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
                     confirmReplace = false
                     scope.launch {
-                        loading = true
-                        error = null
+                        loading = true; error = null
                         runCatching { AdminRepository.replaceQr(checkpoint.id) }
                             .onSuccess { newQr = it }
                             .onFailure { error = it.message }
