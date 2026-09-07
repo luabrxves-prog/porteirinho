@@ -1,48 +1,27 @@
 package com.rondasafe.app.ui.admin
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.CheckpointDto
 import com.rondasafe.app.data.model.FloorDto
 import com.rondasafe.app.data.repository.AdminRepository
-import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -51,84 +30,91 @@ fun SimplifiedCheckpointsScreen(
     onBack: () -> Unit,
     onSelect: (CheckpointDto) -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
-    var includeArchived by remember { mutableStateOf(false) }
     var data by remember { mutableStateOf<List<CheckpointDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addOpen by remember { mutableStateOf(false) }
+    var archiveTarget by remember { mutableStateOf<CheckpointDto?>(null) }
 
-    LaunchedEffect(refresh, includeArchived, floor.id) {
+    LaunchedEffect(refresh, floor.id) {
         loading = true
         error = null
-        runCatching { AdminRepository.listCheckpoints(floor.id, includeArchived) }
+        runCatching { AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active } }
             .onSuccess { data = it }
-            .onFailure { error = it.message ?: "Não foi possível carregar os pontos." }
+            .onFailure { error = it.message }
         loading = false
     }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { AppTopBar(floor.name, onBack) },
+        topBar = { PremiumTopBar(floor.name, onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Pontos de controle", style = MaterialTheme.typography.headlineSmall, color = RondaSafeColors.Navy)
-                        Text("Cadastre os locais onde o porteiro fará a leitura do QR.", color = RondaSafeColors.Muted)
-                    }
-                    Switch(checked = includeArchived, onCheckedChange = { includeArchived = it })
-                }
+                SectionHeading(
+                    "Pontos de controle",
+                    "Cadastre os locais onde o porteiro fará a leitura do QR Code.",
+                )
             }
-
             item {
                 Button(
                     onClick = { addOpen = true },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
-                ) { Text("+ Adicionar ponto", fontWeight = FontWeight.Bold) }
-            }
-
-            if (loading) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
+                ) {
+                    Icon(Icons.Rounded.Add, null)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Adicionar ponto", fontWeight = FontWeight.Bold)
                 }
             }
 
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-
             if (!loading && data.isEmpty()) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = RondaSafeColors.BlueSoft,
-                    ) {
-                        Text(
-                            "Nenhum ponto neste andar. Exemplos: Hall, Elevador, Escada, Garagem ou Área externa.",
-                            modifier = Modifier.padding(18.dp),
-                            color = RondaSafeColors.Navy,
-                        )
-                    }
-                }
+                item { EmptyStateCard("Nenhum ponto cadastrado", "Ex.: Hall, Elevador, Escada, Garagem ou Área externa.", Icons.Rounded.Place) }
             }
 
             items(data, key = { it.id }) { checkpoint ->
-                CheckpointManagementCard(
-                    checkpoint = checkpoint,
-                    onOpen = { onSelect(checkpoint) },
-                    onChanged = { refresh++ },
-                )
+                Card(
+                    onClick = { onSelect(checkpoint) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(modifier = Modifier.size(48.dp), shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
+                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.QrCode2, null, tint = RondaSafeColors.Navy) }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(checkpoint.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                            checkpoint.description?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Surface(shape = RoundedCornerShape(50), color = RondaSafeColors.GreenSoft) {
+                                Text("Ativo", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Green)
+                            }
+                        }
+                        IconButton(onClick = { archiveTarget = checkpoint }) {
+                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar ponto", tint = RondaSafeColors.Muted)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
+                    }
+                }
             }
-
-            item { Spacer(Modifier.height(24.dp)) }
+            item { Spacer(Modifier.height(18.dp)) }
         }
     }
 
@@ -142,84 +128,19 @@ fun SimplifiedCheckpointsScreen(
             },
         )
     }
-}
 
-@Composable
-private fun CheckpointManagementCard(
-    checkpoint: CheckpointDto,
-    onOpen: () -> Unit,
-    onChanged: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var confirmArchive by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (checkpoint.active) RondaSafeColors.GreenSoft else RondaSafeColors.Border,
-                ) {
-                    Text(
-                        if (checkpoint.active) "ATIVO" else "ARQUIVADO",
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (checkpoint.active) RondaSafeColors.Green else RondaSafeColors.Muted,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(checkpoint.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    checkpoint.description?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
-                    }
-                }
-            }
-
-            if (checkpoint.active) {
-                Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-                    Text("Abrir QR Code")
-                }
-                OutlinedButton(
-                    onClick = { confirmArchive = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Arquivar ponto")
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            runCatching { AdminRepository.restore("checkpoints", checkpoint.id) }
-                                .onSuccess { onChanged() }
-                                .onFailure { error = it.message }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Restaurar ponto") }
-            }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-    }
-
-    if (confirmArchive) {
+    archiveTarget?.let { checkpoint ->
         AlertDialog(
-            onDismissRequest = { confirmArchive = false },
+            onDismissRequest = { archiveTarget = null },
             title = { Text("Arquivar ${checkpoint.name}?") },
-            text = { Text("O histórico e as leituras anteriores serão preservados.") },
-            dismissButton = { TextButton(onClick = { confirmArchive = false }) { Text("Cancelar") } },
+            text = { Text("O ponto sairá da lista ativa. Leituras e históricos anteriores serão preservados.") },
+            dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
-                    confirmArchive = false
+                    archiveTarget = null
                     scope.launch {
                         runCatching { AdminRepository.archive("checkpoints", checkpoint.id) }
-                            .onSuccess { onChanged() }
+                            .onSuccess { refresh++ }
                             .onFailure { error = it.message }
                     }
                 }) { Text("Arquivar") }
