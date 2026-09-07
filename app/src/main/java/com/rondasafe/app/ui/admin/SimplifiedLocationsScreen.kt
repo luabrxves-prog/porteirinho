@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
+import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material3.*
@@ -104,11 +105,7 @@ fun SimplifiedLocationsScreen(
                 }
             }
 
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    SectionHeading("Andares", "${floors.size} ativo(s)")
-                }
-            }
+            item { SectionHeading("Andares", "${floors.size} ativo(s)") }
 
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
