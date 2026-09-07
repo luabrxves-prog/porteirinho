@@ -7,10 +7,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.rondasafe.app.data.remote.SupabaseProvider
 import com.rondasafe.app.data.repository.PortariaRepository
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import io.ktor.http.HttpHeaders
@@ -35,119 +37,133 @@ class OfflineSyncWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
-    override suspend fun doWork(): Result {
-        val dao = OfflineDatabase.get(applicationContext).offlineDao()
-
-        PortariaRepository.restoreDeviceCredential(applicationContext)
-        val device = PortariaRepository.deviceCredential
-            // Sem credencial não adianta manter o WorkManager em backoff infinito.
-            // Quando o aparelho for configurado novamente, o provisionamento agenda
-            // uma nova sincronização imediatamente.
-            ?: return Result.success()
-
-        val json = Json { ignoreUnknownKeys = true }
-
-        while (true) {
-            val pending = dao.pending()
-            if (pending.isEmpty()) return Result.success()
-
-            var retryNeeded = false
-
-            for (event in pending) {
-                val payload = runCatching {
-                    json.parseToJsonElement(event.payloadJson).jsonObject
-                }.getOrElse {
-                    dao.markPermanentFailure(
-                        event.clientEventId,
-                        "Payload local inválido: ${it.message ?: "erro de leitura"}",
-                    )
-                    continue
-                }
-
-                val functionName: String
-                val body = if (event.type == "GUARD_OCCURRENCE") {
-                    functionName = "guard-occurrence"
-                    buildJsonObject {
-                        put("client_event_id", event.clientEventId)
-                        put("guard_id", payload["guard_id"]?.jsonPrimitive?.contentOrNull ?: "")
-                        put("run_client_event_id", payload["run_client_event_id"]?.jsonPrimitive?.contentOrNull ?: "")
-                        put("description", payload["description"]?.jsonPrimitive?.contentOrNull ?: "")
-                        put("captured_at_local", payload["captured_at_local"]?.jsonPrimitive?.contentOrNull ?: event.createdAtLocal)
-                    }
-                } else {
-                    functionName = "offline-ingest"
-                    buildJsonObject {
-                        put("client_event_id", event.clientEventId)
-                        put("type", event.type)
-                        put("created_at_local", event.createdAtLocal)
-                        event.monotonicMs?.let { put("monotonic_ms", it) }
-                        put("payload", payload)
-                    }
-                }
-
-                val response = runCatching {
-                    SupabaseProvider.client.functions.invoke(
-                        function = functionName,
-                        body = body,
-                        headers = headersOf(
-                            "x-device-id" to listOf(device.deviceId),
-                            "x-device-secret" to listOf(device.deviceSecret),
-                            HttpHeaders.ContentType to listOf("application/json"),
-                        ),
-                    ).body<OfflineIngestResponse>()
-                }.getOrElse { error ->
-                    val message = error.message ?: "Falha de conexão."
-                    dao.markFailed(event.clientEventId, message)
-
-                    // Se a chamada nem chegou a produzir uma resposta estruturada,
-                    // o mais seguro é aguardar a rede/backoff antes de continuar.
-                    return Result.retry()
-                }
-
-                if (response.ack) {
-                    dao.markSynced(event.clientEventId)
-                    continue
-                }
-
-                val errorCode = response.error.orEmpty()
-                if (response.retryable == false) {
-                    dao.markPermanentFailure(
-                        event.clientEventId,
-                        errorCode.ifBlank { "O servidor rejeitou definitivamente este evento." },
-                    )
-                    continue
-                }
-
-                val parentNotSynced = errorCode == "PARENT_SHIFT_NOT_SYNCED" ||
-                    errorCode == "PARENT_RUN_NOT_SYNCED"
-
-                if (parentNotSynced && event.attempts >= MAX_PARENT_RETRIES - 1) {
-                    dao.markPermanentFailure(
-                        event.clientEventId,
-                        "Registro antigo incompatível com a configuração atual do aparelho ($errorCode). " +
-                            "Ele foi isolado para não bloquear os demais registros.",
-                    )
-                    continue
-                }
-
-                dao.markFailed(
-                    event.clientEventId,
-                    errorCode.ifBlank { "Falha temporária de sincronização." },
-                )
-
-                // Não interromper o lote por um único evento de dependência. Isso
-                // permite que registros independentes e mais novos sincronizem.
-                retryNeeded = true
-            }
-
-            if (retryNeeded) return Result.retry()
-        }
-    }
+    override suspend fun doWork(): Result = syncPending(applicationContext)
 
     companion object {
         private const val UNIQUE_WORK = "rondasafe-offline-sync"
         private const val MAX_PARENT_RETRIES = 3
+        private val json = Json { ignoreUnknownKeys = true }
 
+        /**
+         * Processa a fila inteira. Respostas HTTP do servidor (4xx/5xx) não são
+         * confundidas com falta de internet: o JSON retornado pela Edge Function
+         * é lido a partir do RestException e tratado conforme retryable.
+         */
+        suspend fun syncPending(context: Context): Result {
+            val appContext = context.applicationContext
+            val dao = OfflineDatabase.get(appContext).offlineDao()
+
+            PortariaRepository.restoreDeviceCredential(appContext)
+            val device = PortariaRepository.deviceCredential ?: return Result.success()
+
+            while (true) {
+                val pending = dao.pending()
+                if (pending.isEmpty()) return Result.success()
+
+                var retryNeeded = false
+
+                for (event in pending) {
+                    val payload = runCatching {
+                        json.parseToJsonElement(event.payloadJson).jsonObject
+                    }.getOrElse {
+                        dao.markPermanentFailure(
+                            event.clientEventId,
+                            "Payload local inválido: ${it.message ?: "erro de leitura"}",
+                        )
+                        continue
+                    }
+
+                    val functionName: String
+                    val body = if (event.type == "GUARD_OCCURRENCE") {
+                        functionName = "guard-occurrence"
+                        buildJsonObject {
+                            put("client_event_id", event.clientEventId)
+                            put("guard_id", payload["guard_id"]?.jsonPrimitive?.contentOrNull ?: "")
+                            put("run_client_event_id", payload["run_client_event_id"]?.jsonPrimitive?.contentOrNull ?: "")
+                            put("description", payload["description"]?.jsonPrimitive?.contentOrNull ?: "")
+                            put("captured_at_local", payload["captured_at_local"]?.jsonPrimitive?.contentOrNull ?: event.createdAtLocal)
+                        }
+                    } else {
+                        functionName = "offline-ingest"
+                        buildJsonObject {
+                            put("client_event_id", event.clientEventId)
+                            put("type", event.type)
+                            put("created_at_local", event.createdAtLocal)
+                            event.monotonicMs?.let { put("monotonic_ms", it) }
+                            put("payload", payload)
+                        }
+                    }
+
+                    val response = try {
+                        SupabaseProvider.client.functions.invoke(
+                            function = functionName,
+                            body = body,
+                            headers = headersOf(
+                                "x-device-id" to listOf(device.deviceId),
+                                "x-device-secret" to listOf(device.deviceSecret),
+                                HttpHeaders.ContentType to listOf("application/json"),
+                            ),
+                        ).body<OfflineIngestResponse>()
+                    } catch (error: RestException) {
+                        // supabase-kt lança RestException em qualquer resposta não-2xx.
+                        // A Edge Function já retorna { error, retryable }; aproveitamos
+                        // esse payload para decidir corretamente entre retry e falha real.
+                        runCatching {
+                            json.decodeFromString<OfflineIngestResponse>(error.error)
+                        }.getOrElse {
+                            OfflineIngestResponse(
+                                ack = false,
+                                retryable = error.statusCode >= 500,
+                                error = "HTTP ${error.statusCode}: ${error.error}",
+                            )
+                        }
+                    } catch (error: Exception) {
+                        dao.markFailed(event.clientEventId, error.message ?: "Falha de conexão.")
+                        return Result.retry()
+                    }
+
+                    if (response.ack) {
+                        dao.markSynced(event.clientEventId)
+                        continue
+                    }
+
+                    val errorCode = response.error.orEmpty()
+                    if (response.retryable == false) {
+                        dao.markPermanentFailure(
+                            event.clientEventId,
+                            errorCode.ifBlank { "O servidor rejeitou definitivamente este evento." },
+                        )
+                        continue
+                    }
+
+                    val parentNotSynced = errorCode == "PARENT_SHIFT_NOT_SYNCED" ||
+                        errorCode == "PARENT_RUN_NOT_SYNCED"
+
+                    if (parentNotSynced && event.attempts >= MAX_PARENT_RETRIES - 1) {
+                        dao.markPermanentFailure(
+                            event.clientEventId,
+                            "Registro antigo incompatível com a configuração atual do aparelho ($errorCode). " +
+                                "Ele foi isolado e não bloqueia mais os novos registros.",
+                        )
+                        continue
+                    }
+
+                    dao.markFailed(
+                        event.clientEventId,
+                        errorCode.ifBlank { "Falha temporária de sincronização." },
+                    )
+                    retryNeeded = true
+                }
+
+                if (retryNeeded) return Result.retry()
+            }
+        }
+
+        /**
+         * Toda ação operacional chama schedule(). REPLACE evita ficar atrás de um
+         * backoff antigo e expedited pede execução imediata quando o Android permite.
+         * A fila local continua sendo a garantia caso a conexão caia.
+         */
         fun schedule(context: Context, force: Boolean = false) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -155,6 +171,7 @@ class OfflineSyncWorker(
 
             val request = OneTimeWorkRequestBuilder<OfflineSyncWorker>()
                 .setConstraints(constraints)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setBackoffCriteria(
                     BackoffPolicy.EXPONENTIAL,
                     10,
@@ -164,7 +181,7 @@ class OfflineSyncWorker(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_WORK,
-                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
+                ExistingWorkPolicy.REPLACE,
                 request,
             )
         }
