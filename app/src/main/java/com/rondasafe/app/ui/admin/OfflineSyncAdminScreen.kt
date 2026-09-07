@@ -20,6 +20,7 @@ import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.local.PendingEventEntity
 import com.rondasafe.app.ui.components.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -40,6 +41,16 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
             loading = false
         }
     }
+
+    fun forceSync() {
+        OfflineSyncWorker.schedule(context, force = true)
+        message = "Sincronização iniciada agora."
+        scope.launch {
+            delay(1200)
+            reload()
+        }
+    }
+
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(
@@ -60,7 +71,7 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
             }
             item {
                 Button(
-                    onClick = { OfflineSyncWorker.schedule(context); message = "Sincronização solicitada."; reload() },
+                    onClick = { forceSync() },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(15.dp),
                 ) { Icon(Icons.Rounded.Sync, null); Spacer(Modifier.width(7.dp)); Text("Sincronizar agora", fontWeight = FontWeight.Bold) }
@@ -71,8 +82,9 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
                         onClick = {
                             scope.launch {
                                 failures.forEach { dao.requeuePermanentFailure(it.clientEventId) }
-                                OfflineSyncWorker.schedule(context)
-                                message = "Falhas reenfileiradas manualmente."
+                                OfflineSyncWorker.schedule(context, force = true)
+                                message = "Falhas reenfileiradas e sincronização iniciada."
+                                delay(1200)
                                 reload()
                             }
                         },
@@ -82,8 +94,10 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
             }
             message?.let { item { Surface(shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) { Text(it, modifier = Modifier.padding(12.dp), color = RondaSafeColors.Navy) } } }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            if (!loading && failures.isEmpty()) {
-                item { EmptyStateCard("Tudo sincronizado", "Nenhuma falha permanente registrada neste aparelho.", Icons.Rounded.CloudDone) }
+            if (!loading && failures.isEmpty() && pending == 0) {
+                item { EmptyStateCard("Tudo sincronizado", "Nenhuma pendência ou falha registrada neste aparelho.", Icons.Rounded.CloudDone) }
+            } else if (!loading && failures.isEmpty() && pending > 0) {
+                item { EmptyStateCard("Sincronização em andamento", "$pending registro(s) aguardando envio. Use 'Sincronizar agora' para forçar nova tentativa.", Icons.Rounded.Sync) }
             }
             items(failures, key = { it.clientEventId }) { event ->
                 Card(
@@ -101,8 +115,9 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
                             onClick = {
                                 scope.launch {
                                     dao.requeuePermanentFailure(event.clientEventId)
-                                    OfflineSyncWorker.schedule(context)
-                                    message = "Evento reenfileirado."
+                                    OfflineSyncWorker.schedule(context, force = true)
+                                    message = "Evento reenfileirado e sincronização iniciada."
+                                    delay(1200)
                                     reload()
                                 }
                             },
