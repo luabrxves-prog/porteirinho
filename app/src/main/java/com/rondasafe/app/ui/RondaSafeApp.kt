@@ -38,6 +38,7 @@ enum class AppScreen {
     ADMIN_DASHBOARD,
     ALERTS,
     PATROL_HISTORY,
+    REPORTS,
     PATROL_ASSIGNMENTS,
     OFFLINE_SYNC,
     ARCHIVED,
@@ -96,6 +97,7 @@ fun RondaSafeApp() {
 
             AppScreen.ALERTS,
             AppScreen.PATROL_HISTORY,
+            AppScreen.REPORTS,
             AppScreen.PATROL_ASSIGNMENTS,
             AppScreen.OFFLINE_SYNC,
             AppScreen.ARCHIVED,
@@ -166,6 +168,7 @@ fun RondaSafeApp() {
             onOpenPatrols = { screen = AppScreen.PATROLS },
             onOpenAssignments = { screen = AppScreen.PATROL_ASSIGNMENTS },
             onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
+            onOpenReports = { screen = AppScreen.REPORTS },
             onOpenAlerts = { screen = AppScreen.ALERTS },
             onOpenSync = { screen = AppScreen.OFFLINE_SYNC },
             onOpenArchived = { screen = AppScreen.ARCHIVED },
@@ -178,6 +181,7 @@ fun RondaSafeApp() {
 
         AppScreen.ALERTS -> AlertsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+        AppScreen.REPORTS -> ReportScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.ARCHIVED -> ArchivedScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
