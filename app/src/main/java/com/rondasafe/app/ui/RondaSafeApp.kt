@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.*
@@ -24,6 +25,8 @@ import com.rondasafe.app.ui.components.EntryBuildingBackground
 import com.rondasafe.app.ui.components.RondaSafeColors
 import com.rondasafe.app.ui.components.RondaSafeMark
 import com.rondasafe.app.ui.portaria.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class AdminSelection(
     val building: BuildingDto? = null,
@@ -61,15 +64,22 @@ enum class AppScreen {
 
 @Composable
 fun RondaSafeApp() {
-    var screen by remember {
-        mutableStateOf(
-            if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) {
-                AppScreen.ADMIN_DASHBOARD
-            } else {
-                AppScreen.ENTRY
-            },
-        )
+    val appContext = LocalContext.current.applicationContext
+
+    // A primeira tela deve aparecer imediatamente. Keystore e demais leituras locais
+    // são feitas fora da main thread e só então habilitam o acesso à portaria.
+    var deviceCredentialLoaded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching { PortariaRepository.restoreDeviceCredential(appContext) }
+        }
+        deviceCredentialLoaded = true
     }
+
+    // Sempre começar na entrada evita inicializar Supabase e carregar o painel inteiro
+    // durante o cold start. A sessão administrativa só é consultada quando o usuário
+    // efetivamente toca em Administrador.
+    var screen by remember { mutableStateOf(AppScreen.ENTRY) }
     var selection by remember { mutableStateOf(AdminSelection()) }
     var selectedPatrolTemplate by remember { mutableStateOf<PatrolTemplateDto?>(null) }
     var selectedGuard by remember { mutableStateOf<PortariaGuardDto?>(null) }
@@ -146,7 +156,7 @@ fun RondaSafeApp() {
 
     when (screen) {
         AppScreen.ENTRY -> EntryScreen(
-            portariaEnabled = PortariaRepository.deviceCredential != null,
+            portariaEnabled = deviceCredentialLoaded && PortariaRepository.deviceCredential != null,
             onPortaria = { screen = AppScreen.GUARD_SELECTION },
             onAdmin = {
                 screen = if (runCatching { AuthRepository.hasSession() }.getOrDefault(false)) {
