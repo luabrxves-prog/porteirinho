@@ -1,16 +1,27 @@
 package com.rondasafe.app.ui.admin
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolHistoryRepository
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -23,7 +34,6 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<PatrolHistoryItemDto>>(emptyList()) }
     var guards by remember { mutableStateOf<List<GuardDto>>(emptyList()) }
-    var buildings by remember { mutableStateOf<List<BuildingDto>>(emptyList()) }
     var blocks by remember { mutableStateOf<List<BlockDto>>(emptyList()) }
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
 
@@ -34,9 +44,9 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
     var datePickerTarget by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var guard by remember { mutableStateOf<GuardDto?>(null) }
-    var building by remember { mutableStateOf<BuildingDto?>(null) }
     var block by remember { mutableStateOf<BlockDto?>(null) }
     var floor by remember { mutableStateOf<FloorDto?>(null) }
+    var showMoreFilters by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -52,7 +62,6 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                         to = customTo.plusDays(1).atStartOfDay(zone).toInstant().minusMillis(1),
                         status = status,
                         guardId = guard?.id,
-                        buildingId = building?.id,
                         blockId = block?.id,
                         floorId = floor?.id,
                     )
@@ -61,7 +70,6 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                         days = days,
                         status = status,
                         guardId = guard?.id,
-                        buildingId = building?.id,
                         blockId = block?.id,
                         floorId = floor?.id,
                     )
@@ -75,16 +83,9 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         runCatching {
             guards = GuardRepository.list(includeArchived = true)
-            buildings = AdminRepository.listBuildings(includeArchived = true)
+            blocks = AdminRepository.defaultBlocks()
         }.onFailure { error = it.message }
         reload()
-    }
-
-    LaunchedEffect(building?.id) {
-        block = null
-        floor = null
-        blocks = building?.let { runCatching { AdminRepository.listBlocks(it.id, includeArchived = true) }.getOrDefault(emptyList()) } ?: emptyList()
-        floors = emptyList()
     }
 
     LaunchedEffect(block?.id) {
@@ -92,98 +93,147 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
         floors = block?.let { runCatching { AdminRepository.listFloors(it.id, includeArchived = true) }.getOrDefault(emptyList()) } ?: emptyList()
     }
 
-    Scaffold(topBar = { AppTopBar("Histórico de rondas", onBack) }) { padding ->
-        Column(
-            Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 12.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { PremiumTopBar("Histórico de rondas", onBack) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Período", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(7, 30, 90).forEach { option ->
-                    FilterChip(
-                        selected = !customRange && days == option,
-                        onClick = { customRange = false; days = option; reload() },
-                        label = { Text("$option dias") },
+            item {
+                SectionHeading(
+                    "Acompanhe as rondas",
+                    "Consulte execuções, atrasos, faltas e pontos visitados.",
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.CalendarMonth, null, tint = RondaSafeColors.Blue)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Período", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(7, 30, 90).forEach { option ->
+                                FilterChip(
+                                    selected = !customRange && days == option,
+                                    onClick = { customRange = false; days = option; reload() },
+                                    label = { Text("$option dias", maxLines = 1) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { customRange = !customRange },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Text(if (customRange) "Usar período personalizado" else "Personalizar período", maxLines = 1)
+                        }
+
+                        if (customRange) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DateRangeButton("De", customFrom, Modifier.weight(1f)) { datePickerTarget = "from" }
+                                DateRangeButton("Até", customTo, Modifier.weight(1f)) { datePickerTarget = "to" }
+                            }
+                            Button(
+                                onClick = { reload() },
+                                enabled = !customFrom.isAfter(customTo),
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                            ) { Text("Aplicar período") }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.FilterAlt, null, tint = RondaSafeColors.Blue)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Filtros", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        FilterMenu(
+                            label = "Status",
+                            selected = status?.let(::historyStatusLabel) ?: "Todos os status",
+                            options = listOf(
+                                null to "Todos os status",
+                                "COMPLETED" to "Concluída",
+                                "LATE" to "Atrasada",
+                                "INCOMPLETE" to "Incompleta",
+                                "MISSED" to "Não realizada",
+                                "IN_PROGRESS" to "Em andamento",
+                            ),
+                            onSelected = { status = it; reload() },
+                        )
+                        FilterMenu(
+                            label = "Porteiro",
+                            selected = guard?.name ?: "Todos os porteiros",
+                            options = listOf(null to "Todos os porteiros") + guards.map { it to it.name },
+                            onSelected = { guard = it; reload() },
+                        )
+
+                        OutlinedButton(
+                            onClick = { showMoreFilters = !showMoreFilters },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Text(if (showMoreFilters) "Ocultar filtros de local" else "Filtrar por bloco e andar")
+                            Spacer(Modifier.width(6.dp))
+                            Icon(Icons.Rounded.KeyboardArrowDown, null)
+                        }
+
+                        if (showMoreFilters) {
+                            FilterMenu(
+                                label = "Bloco",
+                                selected = block?.name ?: "Todos os blocos",
+                                options = listOf(null to "Todos os blocos") + blocks.map { it to it.name },
+                                onSelected = { block = it; reload() },
+                            )
+                            if (block != null) {
+                                FilterMenu(
+                                    label = "Andar",
+                                    selected = floor?.name ?: "Todos os andares",
+                                    options = listOf(null to "Todos os andares") + floors.map { it to it.name },
+                                    onSelected = { floor = it; reload() },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+
+            if (!loading && rows.isEmpty()) {
+                item {
+                    EmptyStateCard(
+                        "Nenhuma ronda encontrada",
+                        "Não há registros para os filtros selecionados.",
+                        Icons.Rounded.History,
                     )
                 }
-                FilterChip(
-                    selected = customRange,
-                    onClick = { customRange = true },
-                    label = { Text("Personalizado") },
-                )
             }
 
-            if (customRange) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { datePickerTarget = "from" }, modifier = Modifier.weight(1f)) {
-                        Text("De ${formatLocalDate(customFrom)}")
-                    }
-                    OutlinedButton(onClick = { datePickerTarget = "to" }, modifier = Modifier.weight(1f)) {
-                        Text("Até ${formatLocalDate(customTo)}")
-                    }
-                }
-                Button(onClick = { reload() }, enabled = !customFrom.isAfter(customTo), modifier = Modifier.fillMaxWidth()) {
-                    Text("Aplicar período")
-                }
-            }
-
-            FilterMenu(
-                label = "Status",
-                selected = status?.let(::historyStatusLabel) ?: "Todos",
-                options = listOf(
-                    null to "Todos",
-                    "COMPLETED" to "Concluída",
-                    "LATE" to "Atrasada",
-                    "INCOMPLETE" to "Incompleta",
-                    "MISSED" to "Não realizada",
-                    "IN_PROGRESS" to "Em andamento",
-                ),
-                onSelected = { status = it; reload() },
-            )
-
-            FilterMenu(
-                label = "Porteiro",
-                selected = guard?.name ?: "Todos",
-                options = listOf(null to "Todos") + guards.map { it to it.name },
-                onSelected = { guard = it; reload() },
-            )
-
-            FilterMenu(
-                label = "Prédio",
-                selected = building?.name ?: "Todos",
-                options = listOf(null to "Todos") + buildings.map { it to it.name },
-                onSelected = { building = it; reload() },
-            )
-
-            if (building != null) {
-                FilterMenu(
-                    label = "Bloco",
-                    selected = block?.name ?: "Todos",
-                    options = listOf(null to "Todos") + blocks.map { it to it.name },
-                    onSelected = { block = it; reload() },
-                )
-            }
-
-            if (block != null) {
-                FilterMenu(
-                    label = "Andar",
-                    selected = floor?.name ?: "Todos",
-                    options = listOf(null to "Todos") + floors.map { it to it.name },
-                    onSelected = { floor = it; reload() },
-                )
-            }
-
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (!loading && rows.isEmpty()) Text("Nenhuma ronda encontrada para os filtros selecionados.")
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-            ) {
-                items(rows, key = { it.id }) { item -> PatrolHistoryCard(item) }
-            }
+            items(rows, key = { it.id }) { item -> PatrolHistoryCard(item) }
+            item { Spacer(Modifier.height(18.dp)) }
         }
     }
 
@@ -204,6 +254,21 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
             },
             dismissButton = { TextButton(onClick = { datePickerTarget = null }) { Text("Cancelar") } },
         ) { DatePicker(state = state) }
+    }
+}
+
+@Composable
+private fun DateRangeButton(label: String, date: LocalDate, modifier: Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(58.dp),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Muted)
+            Text(formatLocalDate(date), maxLines = 1, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+        }
     }
 }
 
@@ -230,43 +295,63 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
             }
         },
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, RondaSafeColors.Border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(item.patrolName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                AssistChip(onClick = {}, label = { Text(historyStatusLabel(item.displayStatus)) })
-            }
-            Text(item.guardName ?: "Sem porteiro definido", style = MaterialTheme.typography.bodyMedium)
-            Text(item.buildingName, style = MaterialTheme.typography.bodySmall)
-            Text("Prevista: ${historyDate(item.scheduledFor)}", style = MaterialTheme.typography.bodySmall)
-            Text("Pontos: ${item.visitedPoints}/${item.requiredPoints}", style = MaterialTheme.typography.bodySmall)
-
-            if (item.capturedOffline || item.suspicious) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (item.capturedOffline) Text("Offline", style = MaterialTheme.typography.labelSmall)
-                    if (item.suspicious) Text("Suspeita", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.patrolName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                    Text(item.guardName ?: "Sem porteiro definido", style = MaterialTheme.typography.bodyMedium, color = RondaSafeColors.Muted)
                 }
+                StatusPill(item.displayStatus)
             }
+            HorizontalDivider(color = RondaSafeColors.Border.copy(alpha = .7f))
+            Text("Prevista em ${historyDate(item.scheduledFor)}", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+            Text("${item.visitedPoints} de ${item.requiredPoints} pontos visitados", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
 
             if (expanded) {
-                HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                Spacer(Modifier.height(3.dp))
                 item.startedAt?.let { Text("Início: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
                 item.finishedAt?.let { Text("Fim: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
-                if (item.missingPoints > 0) {
-                    Text("${item.missingPoints} ponto(s) obrigatório(s) faltante(s)", color = MaterialTheme.colorScheme.error)
-                }
+                if (item.capturedOffline) Text("Sincronizada após uso offline", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                if (item.suspicious) Text("Possui marcação de segurança", color = RondaSafeColors.Danger, style = MaterialTheme.typography.bodySmall)
+                if (item.missingPoints > 0) Text("${item.missingPoints} ponto(s) não visitado(s)", color = RondaSafeColors.Danger, fontWeight = FontWeight.SemiBold)
                 if (loadingPoints) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 points.forEach { point ->
-                    val mark = if (point.visited) "✓" else "○"
                     Text(
-                        "$mark ${point.blockName} > ${point.floorName} > ${point.checkpointName}",
+                        "${if (point.visited) "✓" else "○"} ${point.blockName} • ${point.floorName} • ${point.checkpointName}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (point.visited) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                        color = if (point.visited) RondaSafeColors.Text else RondaSafeColors.Danger,
                     )
                 }
+            } else {
+                Text("Toque para ver detalhes", style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Blue)
             }
         }
+    }
+}
+
+@Composable
+private fun StatusPill(status: String) {
+    val color = when (status) {
+        "COMPLETED" -> RondaSafeColors.Green
+        "LATE" -> Color(0xFFE29019)
+        "INCOMPLETE", "MISSED" -> RondaSafeColors.Danger
+        else -> RondaSafeColors.Blue
+    }
+    Surface(shape = RoundedCornerShape(50), color = color.copy(alpha = .12f)) {
+        Text(
+            historyStatusLabel(status),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            maxLines = 1,
+        )
     }
 }
 
@@ -287,13 +372,12 @@ private fun <T> FilterMenu(
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor().fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            singleLine = true,
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (value, title) ->
-                DropdownMenuItem(
-                    text = { Text(title) },
-                    onClick = { expanded = false; onSelected(value) },
-                )
+                DropdownMenuItem(text = { Text(title) }, onClick = { expanded = false; onSelected(value) })
             }
         }
     }
@@ -308,7 +392,7 @@ private fun historyStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm")
 private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 private fun historyDate(value: String): String = runCatching {
