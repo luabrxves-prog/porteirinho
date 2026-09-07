@@ -1,16 +1,25 @@
 package com.rondasafe.app.ui.admin
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.local.PendingEventEntity
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -31,70 +40,78 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
             loading = false
         }
     }
-
     LaunchedEffect(Unit) { reload() }
 
-    Scaffold(topBar = { AppTopBar("Sincronização da portaria", onBack) }) { padding ->
-        Column(
-            Modifier.padding(padding).padding(16.dp).fillMaxSize(),
+    Scaffold(
+        containerColor = RondaSafeColors.Background,
+        topBar = { PremiumTopBar("Sincronização", onBack) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Aguardando envio: $pending", style = MaterialTheme.typography.titleMedium)
-            Text("Falhas que precisam de atenção: ${failures.size}", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Falhas permanentes não são apagadas nem reenviadas automaticamente. Reenvie somente depois de corrigir a causa indicada.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    OfflineSyncWorker.schedule(context)
-                    message = "Sincronização solicitada."
-                    reload()
-                }) { Text("Sincronizar pendentes") }
-
-                if (failures.isNotEmpty()) {
-                    OutlinedButton(onClick = {
-                        scope.launch {
-                            failures.forEach { dao.requeuePermanentFailure(it.clientEventId) }
-                            OfflineSyncWorker.schedule(context)
-                            message = "Falhas reenfileiradas manualmente."
-                            reload()
-                        }
-                    }) { Text("Reenfileirar todas") }
+            item { SectionHeading("Dados da portaria", "Acompanhe registros salvos no aparelho e eventuais falhas de envio.") }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PremiumMetricCard(pending.toString(), "Pendentes", Icons.Rounded.Sync, Modifier.weight(1f))
+                    PremiumMetricCard(failures.size.toString(), "Com falha", Icons.Rounded.ErrorOutline, Modifier.weight(1f))
                 }
             }
-
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-
-            if (!loading && failures.isEmpty()) {
-                Text("Nenhuma falha permanente registrada neste aparelho.")
+            item {
+                Button(
+                    onClick = { OfflineSyncWorker.schedule(context); message = "Sincronização solicitada."; reload() },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(15.dp),
+                ) { Icon(Icons.Rounded.Sync, null); Spacer(Modifier.width(7.dp)); Text("Sincronizar agora", fontWeight = FontWeight.Bold) }
             }
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(failures, key = { it.clientEventId }) { event ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(event.type, style = MaterialTheme.typography.titleSmall)
-                            Text(event.createdAtLocal, style = MaterialTheme.typography.bodySmall)
-                            Text("Tentativas: ${event.attempts}", style = MaterialTheme.typography.bodySmall)
-                            Text(event.lastError ?: "Sem detalhe de erro", color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = {
+            if (failures.isNotEmpty()) {
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                failures.forEach { dao.requeuePermanentFailure(it.clientEventId) }
+                                OfflineSyncWorker.schedule(context)
+                                message = "Falhas reenfileiradas manualmente."
+                                reload()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Reenfileirar todas as falhas") }
+                }
+            }
+            message?.let { item { Surface(shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) { Text(it, modifier = Modifier.padding(12.dp), color = RondaSafeColors.Navy) } } }
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            if (!loading && failures.isEmpty()) {
+                item { EmptyStateCard("Tudo sincronizado", "Nenhuma falha permanente registrada neste aparelho.", Icons.Rounded.CloudDone) }
+            }
+            items(failures, key = { it.clientEventId }) { event ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, RondaSafeColors.Border),
+                ) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(event.type, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                        Text(event.createdAtLocal, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                        Text("Tentativas: ${event.attempts}", style = MaterialTheme.typography.bodySmall)
+                        Text(event.lastError ?: "Sem detalhe de erro", color = RondaSafeColors.Danger, style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(
+                            onClick = {
                                 scope.launch {
                                     dao.requeuePermanentFailure(event.clientEventId)
                                     OfflineSyncWorker.schedule(context)
                                     message = "Evento reenfileirado."
                                     reload()
                                 }
-                            }) { Text("Reenfileirar este evento") }
-                        }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Reenfileirar este registro") }
                     }
                 }
             }
+            item { Spacer(Modifier.height(18.dp)) }
         }
     }
 }
