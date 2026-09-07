@@ -14,11 +14,14 @@ import com.rondasafe.app.data.repository.AuthRepository
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolRepository
 import com.rondasafe.app.ui.components.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 private data class DashboardMetrics(
     val condominium: String = "Condomínio",
-    val blocks: Int = 2,
+    val blocks: Int = 0,
     val checkpoints: Int = 0,
     val guards: Int = 0,
     val patrols: Int = 0,
@@ -41,23 +44,36 @@ fun AdminDashboardScreenV3(
     val scope = rememberCoroutineScope()
     var metrics by remember { mutableStateOf(DashboardMetrics()) }
 
+    // O painel aparece imediatamente e os indicadores são carregados em paralelo.
+    // Antes, cada andar/ponto era consultado em sequência, multiplicando a latência.
     LaunchedEffect(Unit) {
         runCatching {
-            val condominium = AdminRepository.condominium()
-            val blocks = AdminRepository.defaultBlocks()
-            var checkpoints = 0
-            blocks.forEach { block ->
-                AdminRepository.listFloors(block.id).forEach { floor ->
-                    checkpoints += AdminRepository.listCheckpoints(floor.id).size
-                }
+            coroutineScope {
+                val condominiumDeferred = async { AdminRepository.condominium() }
+                val blocksDeferred = async { AdminRepository.defaultBlocks() }
+                val guardsDeferred = async { GuardRepository.list().count { it.active } }
+                val patrolsDeferred = async { PatrolRepository.listTemplates().count { it.active } }
+
+                val condominium = condominiumDeferred.await()
+                val blocks = blocksDeferred.await()
+
+                val checkpoints = blocks.map { block ->
+                    async {
+                        val floors = AdminRepository.listFloors(block.id)
+                        floors.map { floor ->
+                            async { AdminRepository.listCheckpoints(floor.id).size }
+                        }.awaitAll().sum()
+                    }
+                }.awaitAll().sum()
+
+                DashboardMetrics(
+                    condominium = condominium.name,
+                    blocks = blocks.size,
+                    checkpoints = checkpoints,
+                    guards = guardsDeferred.await(),
+                    patrols = patrolsDeferred.await(),
+                )
             }
-            DashboardMetrics(
-                condominium = condominium.name,
-                blocks = blocks.size,
-                checkpoints = checkpoints,
-                guards = GuardRepository.list().count { it.active },
-                patrols = PatrolRepository.listTemplates().count { it.active },
-            )
         }.onSuccess { metrics = it }
     }
 
