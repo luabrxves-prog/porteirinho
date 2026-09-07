@@ -238,7 +238,11 @@ private fun EntryScreen(
             .fillMaxSize()
             .background(RondaSafeColors.NavyDark),
     ) {
-        EntryBuildingBackground(Modifier.fillMaxSize())
+        EntryBuildingBackground(
+            Modifier
+                .fillMaxSize()
+                .offset(y = (-48).dp),
+        )
         Box(
             Modifier
                 .fillMaxSize()

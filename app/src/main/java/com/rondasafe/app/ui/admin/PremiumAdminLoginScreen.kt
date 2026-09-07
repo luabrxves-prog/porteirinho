@@ -100,7 +100,7 @@ fun PremiumAdminLoginScreen(
                 }
                 Spacer(Modifier.height(28.dp))
                 Text(
-                    "Bem-vinda de volta",
+                    "Bem-vindo de volta",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
