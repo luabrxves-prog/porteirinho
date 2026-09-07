@@ -10,8 +10,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_rondasafe_launcher"
-        android:roundIcon="@drawable/ic_rondasafe_launcher"
+        android:icon="@drawable/rondasafe_app_icon"
+        android:roundIcon="@drawable/rondasafe_app_icon"
         android:label="RondaSafe"
         android:supportsRtl="true"
         android:theme="@style/Theme.RondaSafe">
