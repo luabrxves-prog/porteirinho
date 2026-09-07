@@ -1,31 +1,17 @@
 package com.rondasafe.app.ui.admin
 
 import android.os.Build
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +19,7 @@ import com.rondasafe.app.data.model.BuildingDto
 import com.rondasafe.app.data.model.DeviceProvisionRequest
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.PortariaRepository
-import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -51,52 +37,42 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
     LaunchedEffect(Unit) {
         runCatching { AdminRepository.condominium() }
             .onSuccess { condominium = it }
-            .onFailure { error = it.message ?: "Não foi possível carregar o condomínio." }
+            .onFailure { error = it.message }
         initialLoading = false
     }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { AppTopBar("Configurar aparelho", onBack) },
+        topBar = { PremiumTopBar("Configurar aparelho", onBack) },
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).padding(horizontal = 20.dp, vertical = 18.dp).fillMaxSize(),
+            modifier = Modifier.padding(padding).padding(RondaSafeUi.ScreenPadding).fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                "Usar este celular na portaria",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = RondaSafeColors.Navy,
-            )
-            Text(
-                "A configuração é feita uma vez. Depois, os porteiros poderão entrar com nome e PIN neste aparelho.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = RondaSafeColors.Muted,
-            )
+            SectionHeading("Usar este celular na portaria", "Faça esta configuração somente no aparelho compartilhado pelos porteiros.")
 
-            Surface(
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = RondaSafeColors.BlueSoft,
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, RondaSafeColors.Border),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Condomínio", style = MaterialTheme.typography.labelMedium, color = RondaSafeColors.Muted)
-                    Spacer(Modifier.height(4.dp))
-                    if (initialLoading) {
-                        CircularProgressIndicator()
-                    } else {
-                        Text(
-                            condominium?.name ?: "Não configurado",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = RondaSafeColors.Navy,
-                        )
-                        Text(
-                            "Vinculado automaticamente",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = RondaSafeColors.Green,
-                        )
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(modifier = Modifier.size(48.dp), shape = RoundedCornerShape(15.dp), color = RondaSafeColors.BlueSoft) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PhoneAndroid, null, tint = RondaSafeColors.Navy) }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Condomínio", style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Muted)
+                        if (initialLoading) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
+                            Text(condominium?.name ?: "Não configurado", fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.CheckCircle, null, tint = RondaSafeColors.Green, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Vinculado automaticamente", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Green)
+                            }
+                        }
                     }
                 }
             }
@@ -108,18 +84,24 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                 supportingText = { Text("Ex.: Portaria Principal") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
             )
 
+            Surface(shape = RoundedCornerShape(16.dp), color = RondaSafeColors.BlueSoft) {
+                Text(
+                    "Depois de configurar, a opção Portaria será liberada na tela inicial deste celular.",
+                    modifier = Modifier.padding(14.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RondaSafeColors.Navy,
+                )
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
             Spacer(Modifier.weight(1f))
-
             Button(
                 onClick = {
                     val building = condominium ?: return@Button
                     scope.launch {
-                        loading = true
-                        error = null
+                        loading = true; error = null
                         runCatching {
                             PortariaRepository.provisionDevice(
                                 DeviceProvisionRequest(
@@ -132,18 +114,14 @@ fun DeviceProvisionScreen(onBack: () -> Unit, onProvisioned: () -> Unit) {
                                 )
                             )
                             PortariaRepository.persistDeviceCredential(context)
-                        }.onSuccess { onProvisioned() }
-                            .onFailure { error = it.message ?: "Não foi possível configurar o aparelho." }
+                        }.onSuccess { onProvisioned() }.onFailure { error = it.message }
                         loading = false
                     }
                 },
                 enabled = condominium != null && name.isNotBlank() && !loading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(if (loading) "Configurando..." else "Configurar como portaria", fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(8.dp))
+            ) { Text(if (loading) "Configurando..." else "Configurar como portaria", fontWeight = FontWeight.Bold) }
         }
     }
 }
