@@ -132,6 +132,9 @@ interface OfflineDao {
     @Query("select * from local_patrol_runs where runClientEventId = :id limit 1")
     suspend fun localRun(id: String): LocalPatrolRunEntity?
 
+    @Query("select * from local_patrol_runs where scheduleWindowId = :scheduleWindowId and scheduledFor = :scheduledFor order by startedAtLocal desc limit 1")
+    suspend fun localOccurrence(scheduleWindowId: String, scheduledFor: String): LocalPatrolRunEntity?
+
     @Query("update local_patrol_runs set visitedPoints = :count where runClientEventId = :id")
     suspend fun updateLocalVisited(id: String, count: Int)
 
