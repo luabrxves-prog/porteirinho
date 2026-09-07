@@ -31,6 +31,7 @@ fun AdminDashboardScreenV3(
     onOpenPatrols: () -> Unit,
     onOpenAssignments: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenReports: () -> Unit,
     onOpenAlerts: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenArchived: () -> Unit,
@@ -94,6 +95,7 @@ fun AdminDashboardScreenV3(
             item { PremiumMenuRow("Porteiros", "Equipe, fotos e acessos por PIN", Icons.Rounded.Badge, onOpenGuards) }
             item { PremiumMenuRow("Programações de rondas", "Horários, frequência e responsáveis", Icons.Rounded.Schedule, onOpenPatrols) }
             item { PremiumMenuRow("Histórico de rondas", "Relatórios, status e ocorrências", Icons.Rounded.History, onOpenHistory) }
+            item { PremiumMenuRow("Relatórios e Excel", "Exporte rondas, pontos, turnos, alertas e auditoria", Icons.Rounded.TableView, onOpenReports) }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Operação") }
             item { PremiumMenuRow("Responsáveis por ronda", "Opcional — sem responsável, qualquer porteiro pode realizar", Icons.Rounded.AssignmentInd, onOpenAssignments) }
