@@ -354,6 +354,7 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
     fun refresh() {
         scope.launch {
             loading = true
+            error = null
             runCatching { PortariaRepository.availablePatrols() }
                 .onSuccess { patrols = it }
                 .onFailure { error = it.message }
@@ -362,7 +363,7 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
     }
     LaunchedEffect(Unit) { refresh() }
 
-    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Rondas disponíveis") }) { padding ->
+    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Rondas do horário") }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -374,11 +375,37 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
             if (!loading && patrols.isEmpty()) {
                 item {
                     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = RondaSafeColors.BlueSoft) {
-                        Text("Nenhuma ronda disponível neste horário.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
+                        Text("Nenhuma ronda prevista para este horário.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
                     }
                 }
             }
-            items(patrols, key = { it.scheduleWindowId }) { patrol ->
+            items(patrols, key = { "${it.scheduleWindowId}:${it.scheduledFor}" }) { patrol ->
+                val completed = patrol.executionStatus == "COMPLETED"
+                val incomplete = patrol.executionStatus == "INCOMPLETE"
+                val inProgress = patrol.executionStatus == "IN_PROGRESS"
+                val available = patrol.executionStatus == "AVAILABLE"
+                val statusText = when {
+                    completed -> "Concluída"
+                    incomplete -> "Incompleta"
+                    inProgress -> "Em andamento"
+                    patrol.isLate -> "Atrasada"
+                    else -> "Disponível"
+                }
+                val statusColor = when {
+                    completed -> RondaSafeColors.Green
+                    incomplete -> RondaSafeColors.Danger
+                    inProgress -> RondaSafeColors.Blue
+                    patrol.isLate -> RondaSafeColors.Danger
+                    else -> RondaSafeColors.Green
+                }
+                val statusBackground = when {
+                    completed -> RondaSafeColors.GreenSoft
+                    incomplete -> Color(0xFFFFECEC)
+                    inProgress -> RondaSafeColors.BlueSoft
+                    patrol.isLate -> Color(0xFFFFECEC)
+                    else -> RondaSafeColors.GreenSoft
+                }
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(22.dp),
@@ -391,23 +418,62 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
                                 Text(patrol.patrolName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                 Text("${patrol.requiredPoints} pontos de controle", color = RondaSafeColors.Muted)
                             }
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (patrol.isLate) Color(0xFFFFECEC) else RondaSafeColors.GreenSoft,
-                            ) {
+                            Surface(shape = RoundedCornerShape(12.dp), color = statusBackground) {
                                 Text(
-                                    if (patrol.isLate) "Atrasada" else "Disponível",
+                                    statusText,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (patrol.isLate) RondaSafeColors.Danger else RondaSafeColors.Green,
+                                    color = statusColor,
+                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
-                        Button(
-                            onClick = { scope.launch { runCatching { PortariaRepository.startPatrol(shift.shiftId, patrol) }.onSuccess { onStart(patrol, it) }.onFailure { error = it.message } } },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                            shape = RoundedCornerShape(14.dp),
-                        ) { Text("Iniciar ronda", fontWeight = FontWeight.Bold) }
+
+                        if (!patrol.executedByGuardName.isNullOrBlank() && !available) {
+                            Text(
+                                when {
+                                    completed -> "Finalizada por ${patrol.executedByGuardName}."
+                                    incomplete -> "Encerrada incompleta por ${patrol.executedByGuardName}."
+                                    else -> "Iniciada por ${patrol.executedByGuardName}."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RondaSafeColors.Muted,
+                            )
+                        }
+
+                        if (available) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { PortariaRepository.startPatrol(shift.shiftId, patrol) }
+                                            .onSuccess { onStart(patrol, it) }
+                                            .onFailure {
+                                                error = it.message
+                                                refresh()
+                                            }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                shape = RoundedCornerShape(14.dp),
+                            ) { Text("Iniciar ronda", fontWeight = FontWeight.Bold) }
+                        } else {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                color = statusBackground,
+                            ) {
+                                Text(
+                                    when {
+                                        completed -> "Esta ronda já foi finalizada neste horário."
+                                        incomplete -> "Esta ronda já foi encerrada neste horário."
+                                        else -> "Esta ronda já está em andamento."
+                                    },
+                                    modifier = Modifier.padding(13.dp),
+                                    color = statusColor,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                     }
                 }
             }
