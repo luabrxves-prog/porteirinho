@@ -90,6 +90,12 @@ object PatrolRepository {
         }
     }
 
+    suspend fun setAssignmentsForWindows(windowIds: Collection<String>, guardIds: Set<String>) {
+        windowIds.distinct().forEach { windowId ->
+            setAssignments(windowId, guardIds)
+        }
+    }
+
     suspend fun listCheckpointOptions(buildingId: String): List<PatrolCheckpointOption> {
         val blocks = AdminRepository.listBlocks(buildingId)
         val options = mutableListOf<PatrolCheckpointOption>()
@@ -150,7 +156,7 @@ object PatrolRepository {
             })
             put("p_checkpoint_ids", buildJsonArray { effectiveCheckpointIds.forEach { add(JsonPrimitive(it)) } })
         }
-        return client.postgrest.rpc("save_patrol_template", params).decodeSingle<String>()
+        return client.postgrest.rpc("save_patrol_template", params).decodeAs<String>()
     }
 
     suspend fun createTemplate(
