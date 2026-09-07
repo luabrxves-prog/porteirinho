@@ -42,10 +42,19 @@ object PortariaRepository {
     var guardSession: GuardSession? = null
         private set
 
+    private fun safeCredentialRead(context: Context, key: String): String? =
+        runCatching { OfflineCredentialVault.get(context, key) }
+            .getOrElse {
+                // Keystore pode ser invalidado por restauração/upgrade do aparelho.
+                // Remover somente a entrada ilegível evita crash loop sem tocar no DB offline.
+                runCatching { OfflineCredentialVault.remove(context, key) }
+                null
+            }
+
     fun restoreDeviceCredential(context: Context) {
         appContext = context.applicationContext
-        val id = OfflineCredentialVault.get(context, DEVICE_ID_KEY)
-        val secret = OfflineCredentialVault.get(context, DEVICE_SECRET_KEY)
+        val id = safeCredentialRead(context, DEVICE_ID_KEY)
+        val secret = safeCredentialRead(context, DEVICE_SECRET_KEY)
         deviceCredential = if (!id.isNullOrBlank() && !secret.isNullOrBlank()) DeviceCredential(id, secret) else null
     }
 
