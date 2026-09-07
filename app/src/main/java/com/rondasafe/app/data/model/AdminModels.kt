@@ -68,14 +68,14 @@ data class CreateCheckpointDto(
 
 @Serializable
 data class ArchiveDto(
-    val active: Boolean = false,
+    val active: Boolean,
     @SerialName("archived_at") val archivedAt: String,
     @SerialName("archived_by") val archivedBy: String,
 )
 
 @Serializable
 data class RestoreDto(
-    val active: Boolean = true,
+    val active: Boolean,
     @SerialName("archived_at") val archivedAt: String? = null,
     @SerialName("archived_by") val archivedBy: String? = null,
 )
