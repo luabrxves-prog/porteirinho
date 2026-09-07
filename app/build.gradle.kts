@@ -13,8 +13,8 @@ android {
         applicationId = "com.rondasafe.app"
         minSdk = 23
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.3.0"
 
         // Identificadores publicos do cliente Supabase. Podem ser sobrescritos por
         // propriedades Gradle locais/CI. Nunca colocar secret/service_role aqui.
