@@ -1,15 +1,34 @@
 package com.rondasafe.app
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import com.rondasafe.app.data.local.OfflineSyncWorker
 import java.util.TimeZone
 
 class RondaSafeApplication : Application() {
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     override fun onCreate() {
-        // O sistema armazena timestamps em UTC, mas toda a experiência operacional
-        // do condomínio deve ser exibida no fuso de São Paulo. Configurar aqui,
-        // antes de Activities, Room, Supabase e formatters, evita ZoneId.systemDefault()
-        // ser inicializado em UTC pelo processo Android.
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
         super.onCreate()
+
+        // Reagenda qualquer fila pendente ao abrir o aplicativo e dispara novamente
+        // assim que uma rede utilizável reaparecer. O WorkManager continua sendo a
+        // garantia persistente caso o processo esteja fechado.
+        OfflineSyncWorker.schedule(this)
+        registerConnectivitySync()
+    }
+
+    private fun registerConnectivitySync() {
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                OfflineSyncWorker.schedule(this@RondaSafeApplication, force = true)
+            }
+        }
+        networkCallback = callback
+        runCatching { manager.registerDefaultNetworkCallback(callback) }
     }
 }
