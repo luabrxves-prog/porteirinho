@@ -102,6 +102,18 @@ interface OfflineDao {
     @Query("update pending_events set state = 'PENDING', lastError = null where clientEventId = :id and state = 'FAILED_PERMANENT'")
     suspend fun requeuePermanentFailure(id: String)
 
+    @Query("""
+        update pending_events
+        set state = 'PENDING', attempts = 0, lastError = null
+        where state = 'FAILED_PERMANENT'
+          and (
+            lastError like '%PARENT_RUN_NOT_SYNCED%'
+            or lastError like '%PARENT_SHIFT_NOT_SYNCED%'
+            or lastError like 'Registro antigo incompatível com a configuração atual do aparelho%'
+          )
+    """)
+    suspend fun recoverLegacyCompatibilityFailures()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveLocalShift(shift: LocalShiftEntity)
 
