@@ -2,6 +2,7 @@ package com.rondasafe.app.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -14,6 +15,7 @@ fun RondaSafeHomeImage(modifier: Modifier = Modifier) {
         contentDescription = null,
         modifier = modifier,
         contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
     )
 }
 
