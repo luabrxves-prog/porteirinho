@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,62 +37,87 @@ object RondaSafeColors {
 @Composable
 fun RondaSafeMark(
     modifier: Modifier = Modifier,
-    shieldColor: Color = RondaSafeColors.Blue,
     buildingColor: Color = Color.White,
+    accentColor: Color = RondaSafeColors.Blue,
 ) {
-    Canvas(modifier = modifier.size(112.dp)) {
+    Canvas(modifier = modifier.size(104.dp)) {
         val w = size.width
         val h = size.height
-        val radius = size.minDimension * 0.22f
 
-        drawRoundRect(
-            color = RondaSafeColors.NavyDark,
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
-        )
-        drawRoundRect(
-            color = shieldColor.copy(alpha = 0.20f),
-            topLeft = Offset(w * 0.06f, h * 0.06f),
-            size = Size(w * 0.88f, h * 0.88f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius * 0.78f, radius * 0.78f),
-        )
+        val body = Path().apply {
+            moveTo(w * .28f, h * .38f)
+            lineTo(w * .55f, h * .16f)
+            lineTo(w * .76f, h * .28f)
+            lineTo(w * .76f, h * .84f)
+            lineTo(w * .28f, h * .84f)
+            close()
+        }
+        drawPath(body, buildingColor)
 
-        fun building(left: Float, top: Float, right: Float, bottom: Float, columns: Int, rows: Int) {
-            drawRect(
-                color = buildingColor,
-                topLeft = Offset(w * left, h * top),
-                size = Size(w * (right - left), h * (bottom - top)),
-            )
-            val bw = w * (right - left)
-            val bh = h * (bottom - top)
-            val marginX = bw * 0.16f
-            val marginY = bh * 0.10f
-            val cellW = (bw - marginX * 2) / columns
-            val cellH = (bh - marginY * 2) / rows
-            for (r in 0 until rows) {
-                for (c in 0 until columns) {
-                    val windowW = cellW * 0.45f
-                    val windowH = cellH * 0.42f
-                    val x = w * left + marginX + c * cellW + (cellW - windowW) / 2
-                    val y = h * top + marginY + r * cellH + (cellH - windowH) / 2
-                    drawRect(
-                        color = RondaSafeColors.NavyDark,
-                        topLeft = Offset(x, y),
-                        size = Size(windowW, windowH),
-                    )
-                }
+        val leftFace = Path().apply {
+            moveTo(w * .28f, h * .38f)
+            lineTo(w * .40f, h * .31f)
+            lineTo(w * .40f, h * .84f)
+            lineTo(w * .28f, h * .84f)
+            close()
+        }
+        drawPath(leftFace, buildingColor.copy(alpha = .72f))
+
+        val rightFace = Path().apply {
+            moveTo(w * .76f, h * .28f)
+            lineTo(w * .84f, h * .33f)
+            lineTo(w * .84f, h * .84f)
+            lineTo(w * .76f, h * .84f)
+            close()
+        }
+        drawPath(rightFace, accentColor.copy(alpha = .9f))
+
+        val leftWing = Path().apply {
+            moveTo(w * .10f, h * .64f)
+            lineTo(w * .28f, h * .54f)
+            lineTo(w * .28f, h * .84f)
+            lineTo(w * .10f, h * .84f)
+            close()
+        }
+        drawPath(leftWing, buildingColor.copy(alpha = .88f))
+
+        val rightWing = Path().apply {
+            moveTo(w * .84f, h * .60f)
+            lineTo(w * .94f, h * .65f)
+            lineTo(w * .94f, h * .84f)
+            lineTo(w * .84f, h * .84f)
+            close()
+        }
+        drawPath(rightWing, buildingColor.copy(alpha = .88f))
+
+        val window = RondaSafeColors.NavyDark
+        val rows = 5
+        val cols = 2
+        repeat(rows) { r ->
+            repeat(cols) { c ->
+                drawRect(
+                    color = window,
+                    topLeft = Offset(w * (.49f + c * .12f), h * (.31f + r * .105f)),
+                    size = Size(w * .045f, h * .048f),
+                )
             }
         }
-
-        building(0.15f, 0.43f, 0.37f, 0.82f, columns = 2, rows = 5)
-        building(0.38f, 0.20f, 0.66f, 0.82f, columns = 3, rows = 8)
-        building(0.68f, 0.40f, 0.88f, 0.82f, columns = 2, rows = 5)
-
+        repeat(3) { r ->
+            drawRect(
+                color = RondaSafeColors.Navy,
+                topLeft = Offset(w * .16f, h * (.66f + r * .065f)),
+                size = Size(w * .04f, h * .035f),
+            )
+            drawRect(
+                color = RondaSafeColors.Navy,
+                topLeft = Offset(w * .88f, h * (.66f + r * .065f)),
+                size = Size(w * .03f, h * .035f),
+            )
+        }
         drawRect(
-            color = buildingColor,
-            topLeft = Offset(w * 0.45f, h * 0.14f),
-            size = Size(w * 0.14f, h * 0.06f),
+            color = accentColor,
+            topLeft = Offset(w * .57f, h * .73f),
+            size = Size(w * .075f, h * .11f),
         )
     }
 }
@@ -105,7 +131,7 @@ fun RondaSafeBrand(
     val textColor = if (darkBackground) Color.White else RondaSafeColors.Navy
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         RondaSafeMark()
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Text(
             text = "RondaSafe",
             modifier = Modifier.fillMaxWidth(),
@@ -119,7 +145,7 @@ fun RondaSafeBrand(
         if (showTagline) {
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "SEGURANÇA QUE MANTÉM O CONDOMÍNIO EM MOVIMENTO",
+                text = "SEGURANÇA QUE ACOMPANHA CADA PASSO DA SUA RONDA",
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
