@@ -1,5 +1,6 @@
 package com.rondasafe.app.presentation.admin.state
 
+import com.rondasafe.app.core.constants.PatrolHistoryStatus
 import com.rondasafe.app.data.model.PatrolHistoryItemDto
 
 data class AdminDashboardState(
@@ -11,10 +12,14 @@ data class AdminDashboardState(
 ) {
     val total: Int get() = today.size
     val completed: Int get() = today.count {
-        it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0
+        PatrolHistoryStatus.fromWire(it.displayStatus) == PatrolHistoryStatus.COMPLETED &&
+            !it.isLate && !it.suspicious && it.missingPoints == 0
     }
     val attention: Int get() = today.count {
-        it.displayStatus in setOf("MISSED", "INCOMPLETE", "LATE") ||
-            it.isLate || it.suspicious || it.missingPoints > 0
+        PatrolHistoryStatus.fromWire(it.displayStatus) in setOf(
+            PatrolHistoryStatus.MISSED,
+            PatrolHistoryStatus.INCOMPLETE,
+            PatrolHistoryStatus.LATE,
+        ) || it.isLate || it.suspicious || it.missingPoints > 0
     }
 }
