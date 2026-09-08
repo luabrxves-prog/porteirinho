@@ -12,11 +12,12 @@ import kotlinx.serialization.json.put
 import java.time.Instant
 
 object AdminRepository {
+    private const val DEFAULT_PAGE_SIZE = 40
+    private const val MAX_PAGE_SIZE = 100
     private val client get() = SupabaseProvider.client
 
     private fun currentAdminId(): String =
-        client.auth.currentUserOrNull()?.id
-            ?: error("Sessão administrativa não encontrada.")
+        client.auth.currentUserOrNull()?.id ?: error("Sessão administrativa não encontrada.")
 
     suspend fun listBuildings(includeArchived: Boolean = false): List<BuildingDto> =
         client.from("buildings").select {
@@ -47,6 +48,12 @@ object AdminRepository {
             }
         }.decodeList<CheckpointDto>().sortedBy { it.sortOrder }
 
+    suspend fun checkpointOptions(buildingId: String? = null): List<AdminCheckpointOptionDto> =
+        client.postgrest.rpc(
+            function = "admin_checkpoint_options",
+            parameters = buildJsonObject { buildingId?.let { put("p_building_id", it) } },
+        ).decodeList()
+
     suspend fun condominium(): BuildingDto {
         val existing = listBuildings().firstOrNull()
         if (existing != null) return existing
@@ -56,7 +63,6 @@ object AdminRepository {
     suspend fun defaultBlocks(): List<BlockDto> {
         val building = condominium()
         var existing = listBlocks(building.id, includeArchived = true)
-
         suspend fun ensure(name: String) {
             val block = existing.firstOrNull { it.name.equals(name, true) }
             when {
@@ -64,97 +70,130 @@ object AdminRepository {
                 !block.active -> restore("blocks", block.id)
             }
         }
-
         ensure("Bloco A")
         ensure("Bloco B")
         existing = listBlocks(building.id)
-
-        return existing
-            .filter { it.name.equals("Bloco A", true) || it.name.equals("Bloco B", true) }
+        return existing.filter { it.name.equals("Bloco A", true) || it.name.equals("Bloco B", true) }
             .sortedBy { if (it.name.equals("Bloco A", true)) 1 else 2 }
     }
 
-    suspend fun createBuilding(name: String): BuildingDto {
-        val adminId = currentAdminId()
-        return client.from("buildings")
-            .insert(CreateBuildingDto(name = name.trim(), createdBy = adminId)) { select() }
-            .decodeSingle()
-    }
+    suspend fun createBuilding(name: String): BuildingDto = client.from("buildings")
+        .insert(CreateBuildingDto(name = name.trim(), createdBy = currentAdminId())) { select() }.decodeSingle()
 
-    suspend fun createBlock(buildingId: String, name: String): BlockDto {
-        val adminId = currentAdminId()
-        return client.from("blocks")
-            .insert(CreateBlockDto(buildingId = buildingId, name = name.trim(), createdBy = adminId)) { select() }
-            .decodeSingle()
-    }
+    suspend fun createBlock(buildingId: String, name: String): BlockDto = client.from("blocks")
+        .insert(CreateBlockDto(buildingId = buildingId, name = name.trim(), createdBy = currentAdminId())) { select() }.decodeSingle()
 
-    suspend fun createFloor(blockId: String, name: String): FloorDto {
-        val adminId = currentAdminId()
-        return client.from("floors")
-            .insert(CreateFloorDto(blockId = blockId, name = name.trim(), createdBy = adminId)) { select() }
-            .decodeSingle()
-    }
+    suspend fun createFloor(blockId: String, name: String): FloorDto = client.from("floors")
+        .insert(CreateFloorDto(blockId = blockId, name = name.trim(), createdBy = currentAdminId())) { select() }.decodeSingle()
 
-    suspend fun createCheckpoint(floorId: String, name: String, description: String?): CheckpointDto {
-        val adminId = currentAdminId()
-        return client.from("checkpoints")
-            .insert(
-                CreateCheckpointDto(
-                    floorId = floorId,
-                    name = name.trim(),
-                    description = description?.trim()?.takeIf { it.isNotEmpty() },
-                    createdBy = adminId,
-                )
-            ) { select() }
-            .decodeSingle()
-    }
+    suspend fun createCheckpoint(floorId: String, name: String, description: String?): CheckpointDto =
+        client.from("checkpoints").insert(
+            CreateCheckpointDto(
+                floorId = floorId,
+                name = name.trim(),
+                description = description?.trim()?.takeIf { it.isNotEmpty() },
+                createdBy = currentAdminId(),
+            )
+        ) { select() }.decodeSingle()
 
     suspend fun archive(table: String, id: String) {
-        val adminId = currentAdminId()
-        val now = Instant.now().toString()
         client.from(table).update(
-            ArchiveDto(active = false, archivedAt = now, archivedBy = adminId)
+            ArchiveDto(active = false, archivedAt = Instant.now().toString(), archivedBy = currentAdminId())
         ) { filter { eq("id", id) } }
     }
 
     suspend fun restore(table: String, id: String) {
-        client.from(table).update(RestoreDto(active = true)) {
-            filter { eq("id", id) }
-        }
+        client.from(table).update(RestoreDto(active = true)) { filter { eq("id", id) } }
     }
 
     suspend fun deleteArchived(entityType: String, id: String) {
-        client.postgrest.rpc(
-            function = "admin_delete_archived_entity",
-            parameters = buildJsonObject {
-                put("p_entity_type", entityType)
-                put("p_id", id)
-            },
-        )
+        client.postgrest.rpc("admin_delete_archived_entity", buildJsonObject {
+            put("p_entity_type", entityType)
+            put("p_id", id)
+        })
     }
 
     suspend fun getActiveQr(checkpointId: String): ActiveQrDto? {
-        val response = client.functions.invoke(
-            function = "admin-qr",
-            body = QrFunctionRequest(action = "get_active", checkpointId = checkpointId),
-        )
-        val payload = response.body<QrFunctionResponse>()
-        payload.error?.let { error(it) }
-        return payload.qr
+        val response = client.functions.invoke("admin-qr", QrFunctionRequest(action = "get_active", checkpointId = checkpointId))
+        return response.body<QrFunctionResponse>().also { it.error?.let(::error) }.qr
     }
 
     suspend fun createQr(checkpointId: String): QrFunctionResponse = invokeQr("create", checkpointId)
     suspend fun replaceQr(checkpointId: String): QrFunctionResponse = invokeQr("replace", checkpointId)
 
-    suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> =
-        client.from("alerts").select {
-            if (!includeResolved) filter { exact("resolved_at", null) }
-        }.decodeList<AlertDto>().sortedByDescending { it.createdAt }
+    suspend fun alertsPage(
+        from: Instant,
+        to: Instant,
+        resolution: String = "PENDING",
+        severity: String? = null,
+        guardId: String? = null,
+        deviceId: String? = null,
+        pageSize: Int = DEFAULT_PAGE_SIZE,
+        cursor: PageCursor? = null,
+    ): CursorPage<AlertDto> {
+        require(!from.isAfter(to)) { "A data inicial não pode ser posterior à data final." }
+        val safePageSize = pageSize.coerceIn(1, MAX_PAGE_SIZE)
+        val loaded = client.postgrest.rpc(
+            function = "admin_alerts_page",
+            parameters = buildJsonObject {
+                put("p_from", from.toString())
+                put("p_to", to.toString())
+                put("p_resolution", resolution)
+                severity?.let { put("p_severity", it) }
+                guardId?.let { put("p_guard_id", it) }
+                deviceId?.let { put("p_device_id", it) }
+                put("p_page_size", safePageSize)
+                cursor?.let {
+                    put("p_cursor_created_at", it.timestamp)
+                    put("p_cursor_id", it.id)
+                }
+            },
+        ).decodeList<AlertDto>()
+        val hasMore = loaded.size > safePageSize
+        val items = loaded.take(safePageSize)
+        val last = items.lastOrNull()
+        return CursorPage(
+            items = items,
+            hasMore = hasMore,
+            nextCursor = if (hasMore && last != null) PageCursor(last.createdAt, last.id) else null,
+        )
+    }
+
+    /** Compatibility helper. Never returns an unbounded alert collection. */
+    suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> = alertsPage(
+        from = Instant.now().minusSeconds(90L * 24L * 60L * 60L),
+        to = Instant.now(),
+        resolution = if (includeResolved) "ALL" else "PENDING",
+        pageSize = DEFAULT_PAGE_SIZE,
+    ).items
+
+    suspend fun dashboardMetrics(from: Instant, to: Instant, buildingId: String? = null): AdminDashboardMetricsDto =
+        client.postgrest.rpc(
+            function = "admin_dashboard_metrics",
+            parameters = buildJsonObject {
+                put("p_from", from.toString())
+                put("p_to", to.toString())
+                buildingId?.let { put("p_building_id", it) }
+            },
+        ).decodeSingle()
+
+    suspend fun operationsAggregate(
+        from: Instant,
+        to: Instant,
+        granularity: String,
+        buildingId: String? = null,
+    ): List<AdminOperationsAggregateDto> = client.postgrest.rpc(
+        function = "admin_operations_aggregate",
+        parameters = buildJsonObject {
+            put("p_from", from.toString())
+            put("p_to", to.toString())
+            put("p_granularity", granularity)
+            buildingId?.let { put("p_building_id", it) }
+        },
+    ).decodeList()
 
     suspend fun markAlertRead(alertId: String) {
-        client.from("alerts").update(AlertReadDto(readAt = Instant.now().toString())) {
-            filter { eq("id", alertId) }
-        }
+        client.from("alerts").update(AlertReadDto(readAt = Instant.now().toString())) { filter { eq("id", alertId) } }
     }
 
     suspend fun resolveAlert(alertId: String) {
@@ -164,7 +203,7 @@ object AdminRepository {
     }
 
     private suspend fun invokeQr(action: String, checkpointId: String): QrFunctionResponse {
-        val response = client.functions.invoke(function = "admin-qr", body = QrFunctionRequest(action = action, checkpointId = checkpointId))
+        val response = client.functions.invoke("admin-qr", QrFunctionRequest(action = action, checkpointId = checkpointId))
         return response.body<QrFunctionResponse>().also { it.error?.let(::error) }
     }
 }
