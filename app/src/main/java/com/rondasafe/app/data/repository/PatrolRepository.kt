@@ -52,6 +52,21 @@ object PatrolRepository {
         checkpointIds = listTemplateCheckpoints(template.id).filter { it.required }.map { it.checkpointId }.toSet(),
     )
 
+    suspend fun updateFixedPatrolHours(templateId: String, startTime: String, endTime: String) {
+        val timePattern = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+        require(startTime.matches(timePattern)) { "Horário inicial inválido." }
+        require(endTime.matches(timePattern)) { "Horário final inválido." }
+        client.postgrest.rpc(
+            "update_fixed_patrol_hours",
+            buildJsonObject {
+                put("p_template_id", templateId)
+                put("p_start_time", "$startTime:00")
+                put("p_end_time", "$endTime:00")
+                put("p_late_tolerance_minutes", 15)
+            },
+        )
+    }
+
     suspend fun listAssignments(windowId: String, includeArchived: Boolean = true): List<PatrolScheduleAssignmentDto> =
         client.from("patrol_schedule_assignments").select {
             filter {
@@ -91,9 +106,7 @@ object PatrolRepository {
     }
 
     suspend fun setAssignmentsForWindows(windowIds: Collection<String>, guardIds: Set<String>) {
-        windowIds.distinct().forEach { windowId ->
-            setAssignments(windowId, guardIds)
-        }
+        windowIds.distinct().forEach { windowId -> setAssignments(windowId, guardIds) }
     }
 
     suspend fun listCheckpointOptions(buildingId: String): List<PatrolCheckpointOption> {
@@ -106,7 +119,7 @@ object PatrolRepository {
                 checkpoints.forEach { checkpoint ->
                     options += PatrolCheckpointOption(
                         checkpoint = checkpoint,
-                        label = "${block.name} • ${floor.name} • ${checkpoint.name}",
+                        label = "${floor.name} • ${checkpoint.name}",
                     )
                 }
             }
