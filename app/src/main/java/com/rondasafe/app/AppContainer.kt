@@ -7,6 +7,7 @@ import com.rondasafe.app.data.sync.OfflineEventQueue
 import com.rondasafe.app.data.sync.OfflineSyncService
 import com.rondasafe.app.domain.service.GuardAuthService
 import com.rondasafe.app.domain.service.GuardSessionStore
+import com.rondasafe.app.domain.service.OccurrenceService
 import com.rondasafe.app.domain.service.PatrolAvailabilityService
 import com.rondasafe.app.domain.service.PatrolRunService
 import com.rondasafe.app.domain.service.QrScanService
@@ -46,6 +47,11 @@ class AppContainer(context: Context) {
         eventQueue = offlineEventQueue,
     )
     val qrScanService = QrScanService(
+        context = appContext,
+        sessionStore = guardSessionStore,
+        eventQueue = offlineEventQueue,
+    )
+    val occurrenceService = OccurrenceService(
         context = appContext,
         sessionStore = guardSessionStore,
         eventQueue = offlineEventQueue,
