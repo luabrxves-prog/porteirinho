@@ -175,6 +175,9 @@ interface OfflineDao {
 
     @Query("delete from local_visited_checkpoints where runClientEventId = :runId")
     suspend fun deleteLocalVisits(runId: String)
+
+    @Query("delete from local_visited_checkpoints where runClientEventId not in (select runClientEventId from local_patrol_runs)")
+    suspend fun deleteOrphanVisits()
 }
 
 @Database(
