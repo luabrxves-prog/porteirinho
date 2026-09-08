@@ -11,11 +11,17 @@ import com.rondasafe.app.data.local.OfflineSyncWorker
 import java.util.TimeZone
 
 class RondaSafeApplication : Application() {
+    lateinit var container: AppContainer
+        private set
+
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
         super.onCreate()
+
+        container = AppContainer(this)
+        container.deviceCredentialStore.restore()
 
         // Reagenda qualquer fila pendente ao abrir o aplicativo e dispara novamente
         // assim que uma rede utilizável reaparecer. O WorkManager continua sendo a
