@@ -67,7 +67,8 @@ object AdminRepository {
 
     suspend fun defaultBlocks(): List<BlockDto> {
         val building = condominium()
-        return listBlocks(building.id).filter { it.systemFixed || it.name.equals("Condomínio", true) }
+        return listBlocks(building.id)
+            .filter { it.active && it.systemFixed }
             .sortedBy { it.sortOrder }
     }
 
