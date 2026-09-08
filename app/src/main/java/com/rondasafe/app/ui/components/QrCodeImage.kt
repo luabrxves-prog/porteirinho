@@ -7,8 +7,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
 fun generateQrBitmap(content: String, size: Int = 768): Bitmap {
     val matrix: BitMatrix = MultiFormatWriter().encode(
@@ -16,6 +18,11 @@ fun generateQrBitmap(content: String, size: Int = 768): Bitmap {
         BarcodeFormat.QR_CODE,
         size,
         size,
+        mapOf(
+            EncodeHintType.CHARACTER_SET to "UTF-8",
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.Q,
+            EncodeHintType.MARGIN to 4,
+        ),
     )
     val pixels = IntArray(size * size)
     for (y in 0 until size) {
