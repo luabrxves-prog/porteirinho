@@ -1,8 +1,10 @@
 package com.rondasafe.app
 
 import android.content.Context
+import com.rondasafe.app.data.remote.datasource.OfflineSyncRemoteDataSource
 import com.rondasafe.app.data.remote.datasource.PortariaRemoteDataSource
 import com.rondasafe.app.data.sync.OfflineEventQueue
+import com.rondasafe.app.data.sync.OfflineSyncService
 import com.rondasafe.app.domain.service.GuardAuthService
 import com.rondasafe.app.domain.service.GuardSessionStore
 import com.rondasafe.app.domain.service.PatrolAvailabilityService
@@ -15,7 +17,14 @@ class AppContainer(context: Context) {
 
     val deviceCredentialStore = DeviceCredentialStore(appContext)
     val guardSessionStore = GuardSessionStore()
+
+    val offlineSyncRemoteDataSource = OfflineSyncRemoteDataSource(deviceCredentialStore)
+    val offlineSyncService = OfflineSyncService(
+        context = appContext,
+        remote = offlineSyncRemoteDataSource,
+    )
     val offlineEventQueue = OfflineEventQueue(appContext)
+
     val portariaRemoteDataSource = PortariaRemoteDataSource(
         context = appContext,
         deviceCredentialStore = deviceCredentialStore,
