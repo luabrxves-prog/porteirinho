@@ -75,7 +75,7 @@ fun AdminDashboardScreenV3(
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { PremiumTopBar("Painel administrativo") },
+        topBar = { PremiumTopBar("Administração") },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
@@ -85,7 +85,7 @@ fun AdminDashboardScreenV3(
             item {
                 CondoPhotoHeroCard(
                     title = metrics.condominium,
-                    subtitle = "Acompanhamento da operação de hoje",
+                    subtitle = "Resumo de hoje",
                 )
             }
 
@@ -94,15 +94,15 @@ fun AdminDashboardScreenV3(
             item {
                 val needsAttention = metrics.attention > 0 || metrics.openAlerts > 0
                 val title = when {
-                    needsAttention -> "Atenção necessária"
+                    needsAttention -> "Há algo para conferir"
                     metrics.total == 0 -> "Sem rondas previstas hoje"
                     else -> "Tudo em ordem"
                 }
                 val subtitle = when {
-                    metrics.attention > 0 -> "${metrics.attention} ronda(s) de hoje precisam de revisão."
-                    metrics.openAlerts > 0 -> "${metrics.openAlerts} alerta(s) ainda estão pendentes."
-                    metrics.total == 0 -> "Nenhuma ronda está programada para hoje."
-                    else -> "As rondas de hoje não apresentam problemas pendentes."
+                    metrics.attention > 0 -> "${metrics.attention} ronda(s) precisam da sua atenção."
+                    metrics.openAlerts > 0 -> "${metrics.openAlerts} alerta(s) pendente(s)."
+                    metrics.total == 0 -> "Nenhuma ronda está prevista para hoje."
+                    else -> "As rondas de hoje estão sem pendências."
                 }
                 val background = if (needsAttention) Color(0xFFFFF4DF) else RondaSafeColors.GreenSoft
                 val foreground = if (needsAttention) Color(0xFFB66A00) else RondaSafeColors.Green
@@ -117,8 +117,8 @@ fun AdminDashboardScreenV3(
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.total.toString(), "Previstas hoje", Icons.Rounded.Schedule, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.completed.toString(), "Tudo certo", Icons.Rounded.CheckCircle, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.total.toString(), "Previstas", Icons.Rounded.Schedule, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.completed.toString(), "Concluídas", Icons.Rounded.CheckCircle, Modifier.weight(1f))
                 }
             }
             item {
@@ -128,18 +128,16 @@ fun AdminDashboardScreenV3(
                 }
             }
 
-            item { Spacer(Modifier.height(4.dp)); SectionHeading("Operação de hoje", "O que você precisa conferir no dia a dia.") }
-            item { PremiumMenuRow("Rondas de hoje e histórico", "Veja se as rondas foram feitas corretamente", Icons.Rounded.History, onOpenHistory) }
-            item { PremiumMenuRow("Alertas", "Somente situações que precisam da sua atenção", Icons.Rounded.NotificationsActive, onOpenAlerts) }
+            item { Spacer(Modifier.height(4.dp)); SectionHeading("Acompanhar") }
+            item { PremiumMenuRow("Rondas de hoje e histórico", "Veja o que foi feito e o que ficou pendente", Icons.Rounded.History, onOpenHistory) }
+            item { PremiumMenuRow("Alertas", "Situações que precisam de atenção", Icons.Rounded.NotificationsActive, onOpenAlerts) }
 
-            item { Spacer(Modifier.height(4.dp)); SectionHeading("Gestão", "Cadastros e programação da operação.") }
-            item { PremiumMenuRow("Programações de rondas", "Dias, horários e quem pode realizar", Icons.Rounded.Schedule, onOpenPatrols) }
-            item { PremiumMenuRow("Porteiros", "Equipe, fotos e acessos", Icons.Rounded.Badge, onOpenGuards) }
-            item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos e QR Codes da ronda", Icons.Rounded.Place, onOpenLocations) }
-            item { PremiumMenuRow("Relatórios", "Conferência simples da operação em Excel", Icons.Rounded.TableView, onOpenReports) }
-
-            item { Spacer(Modifier.height(4.dp)); SectionHeading("Outros") }
-            item { PremiumMenuRow("Configurações", "Aparelho, arquivados e diagnóstico", Icons.Rounded.Settings, onOpenSettings) }
+            item { Spacer(Modifier.height(4.dp)); SectionHeading("Gerenciar") }
+            item { PremiumMenuRow("Horários das rondas", "Altere somente início e fim das rondas fixas", Icons.Rounded.Schedule, onOpenPatrols) }
+            item { PremiumMenuRow("Porteiros", "Equipe, foto e PIN de acesso", Icons.Rounded.Badge, onOpenGuards) }
+            item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos e impressão dos QR Codes", Icons.Rounded.Place, onOpenLocations) }
+            item { PremiumMenuRow("Relatórios", "Exporte informações quando precisar", Icons.Rounded.TableView, onOpenReports) }
+            item { PremiumMenuRow("Ajustes", "Responsáveis e aparelho da portaria", Icons.Rounded.Settings, onOpenSettings) }
 
             item {
                 Spacer(Modifier.height(4.dp))
@@ -155,7 +153,7 @@ fun AdminDashboardScreenV3(
                 ) {
                     Icon(Icons.Rounded.Logout, null, modifier = Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Sair do administrador", fontWeight = FontWeight.Bold)
+                    Text("Sair", fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(18.dp))
             }
