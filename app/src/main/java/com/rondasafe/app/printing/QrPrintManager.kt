@@ -18,6 +18,10 @@ import com.rondasafe.app.ui.components.generateQrBitmap
 import java.io.FileOutputStream
 
 object QrPrintManager {
+    private const val PAGE_WIDTH = 298
+    private const val PAGE_HEIGHT = 420
+    private const val PAGE_CENTER_X = PAGE_WIDTH / 2f
+
     private val Navy = Color.rgb(6, 43, 70)
     private val NavyDark = Color.rgb(3, 30, 50)
     private val Blue = Color.rgb(22, 138, 243)
@@ -25,6 +29,7 @@ object QrPrintManager {
     private val Muted = Color.rgb(104, 118, 132)
     private val Border = Color.rgb(225, 231, 237)
     private val SoftBackground = Color.rgb(245, 248, 251)
+    private val BlueSoft = Color.rgb(234, 244, 255)
 
     fun printActiveQr(
         context: Context,
@@ -66,124 +71,119 @@ object QrPrintManager {
             ) {
                 val document = PdfDocument()
                 try {
-                    val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+                    val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
                     val page = document.startPage(pageInfo)
                     val canvas = page.canvas
 
                     canvas.drawColor(Color.WHITE)
 
                     val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NavyDark }
-                    canvas.drawRect(0f, 0f, 595f, 170f, headerPaint)
+                    canvas.drawRect(0f, 0f, PAGE_WIDTH.toFloat(), 76f, headerPaint)
 
                     val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Blue }
-                    canvas.drawRect(0f, 166f, 595f, 170f, accentPaint)
-
-                    val eyebrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.WHITE
-                        textSize = 12f
-                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    }
-                    drawCenteredText(canvas, "CONTROLE DE RONDA", 48f, eyebrowPaint)
+                    canvas.drawRect(0f, 72f, PAGE_WIDTH.toFloat(), 76f, accentPaint)
 
                     val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Color.WHITE
-                        textSize = 31f
+                        textSize = 19f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    drawCenteredText(canvas, "RondaSafe", 88f, brandPaint)
+                    drawCenteredText(canvas, "RondaSafe", 31f, brandPaint)
+
+                    val eyebrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.WHITE
+                        textSize = 8f
+                        letterSpacing = 0.12f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    }
+                    drawCenteredText(canvas, "PONTO DE RONDA", 54f, eyebrowPaint)
+
+                    val checkpointRect = RectF(18f, 86f, 280f, 116f)
+                    val checkpointBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = BlueSoft }
+                    canvas.drawRoundRect(checkpointRect, 13f, 13f, checkpointBg)
 
                     val checkpointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.WHITE
-                        textSize = 20f
+                        color = Navy
+                        textSize = 13f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    drawCenteredWrappedText(
+                    drawCenteredSingleLineEllipsized(
                         canvas = canvas,
                         text = checkpointName,
-                        centerX = 297.5f,
-                        firstBaseline = 126f,
-                        maxWidth = 475f,
-                        lineHeight = 24f,
-                        maxLines = 2,
+                        baseline = 106f,
+                        maxWidth = 232f,
                         paint = checkpointPaint,
                     )
 
-                    val instructionTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    val instructionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Text
-                        textSize = 15f
+                        textSize = 8.8f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    drawCenteredText(canvas, "ESCANEIE PARA REGISTRAR SUA PASSAGEM", 207f, instructionTitlePaint)
+                    drawCenteredText(canvas, "Escaneie para registrar sua passagem", 134f, instructionPaint)
 
-                    val instructionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Muted
-                        textSize = 11.5f
-                    }
-                    drawCenteredText(canvas, "Abra a ronda no aplicativo e aponte a câmera para este código.", 229f, instructionPaint)
+                    val qrFrame = RectF(50f, 144f, 248f, 342f)
+                    val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = SoftBackground }
+                    canvas.drawRoundRect(qrFrame, 12f, 12f, framePaint)
 
-                    val cardRect = RectF(83f, 250f, 512f, 679f)
-                    val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = SoftBackground }
-                    canvas.drawRoundRect(cardRect, 24f, 24f, cardPaint)
-
-                    val cardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    val frameBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Border
                         style = Paint.Style.STROKE
-                        strokeWidth = 1.5f
+                        strokeWidth = 1f
                     }
-                    canvas.drawRoundRect(cardRect, 24f, 24f, cardBorderPaint)
+                    canvas.drawRoundRect(qrFrame, 12f, 12f, frameBorder)
 
                     val qrBitmap = generateQrBitmap(token, 1200)
-                    val qrDest = Rect(109, 276, 486, 653)
+                    val qrDest = Rect(60, 154, 238, 332)
                     canvas.drawBitmap(qrBitmap, null, qrDest, null)
+
+                    val officialBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = BlueSoft }
+                    val officialRect = RectF(104f, 350f, 194f, 370f)
+                    canvas.drawRoundRect(officialRect, 10f, 10f, officialBg)
 
                     val officialPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Navy
-                        textSize = 12f
+                        textSize = 8f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    drawCenteredText(canvas, "PONTO OFICIAL DE RONDA", 713f, officialPaint)
+                    drawCenteredText(canvas, "✓  Ponto oficial", 363f, officialPaint)
 
-                    val helperPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    val tracePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Muted
-                        textSize = 10.5f
+                        textSize = 7f
                     }
-                    drawCenteredText(canvas, "Mantenha esta placa fixa e visível no local indicado.", 733f, helperPaint)
+                    val trace = buildString {
+                        append("QR v${version ?: "-"}")
+                        fingerprint?.takeIf { it.isNotBlank() }?.let { append(" • ID $it") }
+                    }
+                    drawCenteredText(canvas, trace, 381f, tracePaint)
 
-                    val footerTop = 760f
                     val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Border
                         strokeWidth = 1f
                     }
-                    canvas.drawLine(48f, footerTop, 547f, footerTop, dividerPaint)
+                    canvas.drawLine(30f, 389f, 89f, 389f, dividerPaint)
+                    canvas.drawLine(209f, 389f, 268f, 389f, dividerPaint)
 
                     context.getDrawable(R.drawable.breves_logo_qr)?.let { logo ->
-                        logo.setBounds(50, 777, 90, 822)
+                        logo.setBounds(99, 388, 123, 414)
                         logo.draw(canvas)
                     }
 
-                    val poweredPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Muted
-                        textSize = 9.5f
+                    val brevesPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Navy
+                        textSize = 10.5f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    canvas.drawText("Tecnologia por Breves", 103f, 794f, poweredPaint)
+                    canvas.drawText("B R E V E S", 131f, 402f, brevesPaint)
 
                     val sitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Blue
-                        textSize = 13f
-                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    }
-                    canvas.drawText("brevestech.com", 103f, 814f, sitePaint)
-
-                    val tracePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Muted
                         textSize = 8.5f
-                        textAlign = Paint.Align.RIGHT
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
                     }
-                    val trace = buildString {
-                        append("QR v${version ?: "-"}")
-                        fingerprint?.takeIf { it.isNotBlank() }?.let { append("  •  ID $it") }
-                    }
-                    canvas.drawText(trace, 545f, 810f, tracePaint)
+                    canvas.drawText("brevestech.com", PAGE_CENTER_X, 416f, sitePaint)
 
                     document.finishPage(page)
 
@@ -203,7 +203,7 @@ object QrPrintManager {
             jobName,
             adapter,
             PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A6)
                 .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
                 .build(),
         )
@@ -216,47 +216,23 @@ object QrPrintManager {
         paint: Paint,
     ) {
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(text, 297.5f, baseline, paint)
+        canvas.drawText(text, PAGE_CENTER_X, baseline, paint)
     }
 
-    private fun drawCenteredWrappedText(
+    private fun drawCenteredSingleLineEllipsized(
         canvas: android.graphics.Canvas,
         text: String,
-        centerX: Float,
-        firstBaseline: Float,
+        baseline: Float,
         maxWidth: Float,
-        lineHeight: Float,
-        maxLines: Int,
         paint: Paint,
     ) {
-        val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (words.isEmpty()) return
-
-        val allLines = mutableListOf<String>()
-        var current = ""
-        for (word in words) {
-            val candidate = if (current.isBlank()) word else "$current $word"
-            if (paint.measureText(candidate) <= maxWidth || current.isBlank()) {
-                current = candidate
-            } else {
-                allLines += current
-                current = word
+        var displayed = text.trim()
+        if (paint.measureText(displayed) > maxWidth) {
+            while (displayed.isNotEmpty() && paint.measureText("$displayed…") > maxWidth) {
+                displayed = displayed.dropLast(1)
             }
+            displayed += "…"
         }
-        if (current.isNotBlank()) allLines += current
-
-        val lines = allLines.take(maxLines).toMutableList()
-        if (allLines.size > maxLines && lines.isNotEmpty()) {
-            var last = lines.last()
-            while (last.isNotEmpty() && paint.measureText("$last…") > maxWidth) {
-                last = last.dropLast(1)
-            }
-            lines[lines.lastIndex] = "$last…"
-        }
-
-        paint.textAlign = Paint.Align.CENTER
-        lines.forEachIndexed { index, line ->
-            canvas.drawText(line, centerX, firstBaseline + (index * lineHeight), paint)
-        }
+        drawCenteredText(canvas, displayed, baseline, paint)
     }
 }
