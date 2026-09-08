@@ -55,7 +55,7 @@ fun SimplifiedCheckpointsScreen(
                 checkpoints to readiness
             }
         }.onSuccess { (checkpoints, readiness) ->
-            data = checkpoints
+            data = checkpoints.sortedWith(compareByDescending<CheckpointDto> { it.systemFixed }.thenBy { it.sortOrder }.thenBy { it.name })
             qrReady = readiness
         }.onFailure { error = it.message }
         loading = false
@@ -74,8 +74,7 @@ fun SimplifiedCheckpointsScreen(
                 val ready = qrReady.values.count { it }
                 SectionHeading(
                     "Pontos de controle",
-                    if (data.isEmpty()) "Cadastre os locais que farão parte da ronda."
-                    else "$ready de ${data.size} QR Code(s) prontos para uso.",
+                    "$ready de ${data.size} QR Code(s) prontos. O ponto base é obrigatório; novos pontos adicionados aqui também entram automaticamente em todas as rondas.",
                 )
             }
             item {
@@ -86,14 +85,14 @@ fun SimplifiedCheckpointsScreen(
                 ) {
                     Icon(Icons.Rounded.Add, null)
                     Spacer(Modifier.width(7.dp))
-                    Text("Adicionar ponto", fontWeight = FontWeight.Bold)
+                    Text("Adicionar ponto extra", fontWeight = FontWeight.Bold)
                 }
             }
 
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             if (!loading && data.isEmpty()) {
-                item { EmptyStateCard("Nenhum ponto cadastrado", "Ex.: Hall, Elevador, Escada, Garagem ou Área externa.", Icons.Rounded.Place) }
+                item { EmptyStateCard("Nenhum ponto encontrado", "O ponto obrigatório deste local precisa ser restaurado.", Icons.Rounded.Place) }
             }
 
             items(data, key = { it.id }) { checkpoint ->
@@ -112,9 +111,17 @@ fun SimplifiedCheckpointsScreen(
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(checkpoint.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                            checkpoint.description?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
+                            Text(
+                                if (checkpoint.systemFixed) "Ponto obrigatório" else checkpoint.name,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = RondaSafeColors.Navy,
+                            )
+                            if (checkpoint.systemFixed) {
+                                Text("Fixo • obrigatório em todas as rondas", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                            } else {
+                                checkpoint.description?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
+                                }
                             }
                             Spacer(Modifier.height(5.dp))
                             Surface(shape = RoundedCornerShape(50), color = if (isReady) RondaSafeColors.GreenSoft else Color(0xFFFFF4DF)) {
@@ -127,8 +134,10 @@ fun SimplifiedCheckpointsScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { archiveTarget = checkpoint }) {
-                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar ponto", tint = RondaSafeColors.Muted)
+                        if (!checkpoint.systemFixed) {
+                            IconButton(onClick = { archiveTarget = checkpoint }) {
+                                Icon(Icons.Rounded.Archive, contentDescription = "Arquivar ponto extra", tint = RondaSafeColors.Muted)
+                            }
                         }
                         Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                     }
@@ -153,7 +162,7 @@ fun SimplifiedCheckpointsScreen(
         AlertDialog(
             onDismissRequest = { archiveTarget = null },
             title = { Text("Arquivar ${checkpoint.name}?") },
-            text = { Text("O ponto sairá da lista ativa. Leituras e históricos anteriores serão preservados.") },
+            text = { Text("Esse ponto extra deixará de ser obrigatório nas próximas rondas. O histórico de leituras anteriores será preservado.") },
             dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
@@ -182,10 +191,11 @@ private fun SimpleCheckpointDialog(
 
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text("Novo ponto") },
+        title = { Text("Novo ponto extra") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, placeholder = { Text("Ex.: Hall do elevador") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("O novo ponto será obrigatório automaticamente nas três rondas diárias.", color = RondaSafeColors.Muted)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, placeholder = { Text("Ex.: Escada de emergência") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Observação (opcional)") }, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
