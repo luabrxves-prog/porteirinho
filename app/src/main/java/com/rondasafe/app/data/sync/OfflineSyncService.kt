@@ -17,12 +17,16 @@ class OfflineSyncService(
     private val syncMutex = Mutex()
 
     suspend fun syncPending(): OfflineSyncOutcome = syncMutex.withLock {
+        syncLoop()
+    }
+
+    private suspend fun syncLoop(): OfflineSyncOutcome {
         dao.recoverLegacyCompatibilityFailures()
-        if (!remote.isConfigured()) return@withLock OfflineSyncOutcome.SUCCESS
+        if (!remote.isConfigured()) return OfflineSyncOutcome.SUCCESS
 
         while (true) {
             val pending = dao.pending()
-            if (pending.isEmpty()) return@withLock OfflineSyncOutcome.SUCCESS
+            if (pending.isEmpty()) return OfflineSyncOutcome.SUCCESS
 
             var retryNeeded = false
 
@@ -39,7 +43,7 @@ class OfflineSyncService(
                     remote.send(request.functionName, request.body)
                 } catch (error: Exception) {
                     dao.markFailed(event.clientEventId, error.message ?: "Falha de conexão.")
-                    return@withLock OfflineSyncOutcome.RETRY
+                    return OfflineSyncOutcome.RETRY
                 }
 
                 when (val decision = retryPolicy.decide(response, event.attempts)) {
@@ -54,7 +58,7 @@ class OfflineSyncService(
                 }
             }
 
-            if (retryNeeded) return@withLock OfflineSyncOutcome.RETRY
+            if (retryNeeded) return OfflineSyncOutcome.RETRY
         }
     }
 }
