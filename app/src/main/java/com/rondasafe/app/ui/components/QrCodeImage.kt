@@ -2,8 +2,12 @@ package com.rondasafe.app.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.zxing.BarcodeFormat
@@ -11,6 +15,8 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 fun generateQrBitmap(content: String, size: Int = 768): Bitmap {
     val matrix: BitMatrix = MultiFormatWriter().encode(
@@ -40,10 +46,19 @@ fun QrCodeImage(
     content: String,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = remember(content) { generateQrBitmap(content) }
-    Image(
-        bitmap = bitmap.asImageBitmap(),
-        contentDescription = "QR Code do ponto de ronda",
-        modifier = modifier,
-    )
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = content) {
+        value = withContext(Dispatchers.Default) {
+            generateQrBitmap(content, size = 512)
+        }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        bitmap?.let {
+            Image(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "QR Code do ponto de ronda",
+                modifier = Modifier.matchParentSize(),
+            )
+        } ?: CircularProgressIndicator()
+    }
 }
