@@ -48,11 +48,16 @@ object AdminRepository {
             }
         }.decodeList<CheckpointDto>().sortedBy { it.sortOrder }
 
-    suspend fun checkpointOptions(buildingId: String? = null): List<AdminCheckpointOptionDto> =
-        client.postgrest.rpc(
-            function = "admin_checkpoint_options",
-            parameters = buildJsonObject { buildingId?.let { put("p_building_id", it) } },
-        ).decodeList()
+    suspend fun checkpointOptions(
+        buildingId: String? = null,
+        floorId: String? = null,
+    ): List<AdminCheckpointOptionDto> = client.postgrest.rpc(
+        function = "admin_checkpoint_options",
+        parameters = buildJsonObject {
+            buildingId?.let { put("p_building_id", it) }
+            floorId?.let { put("p_floor_id", it) }
+        },
+    ).decodeList()
 
     suspend fun condominium(): BuildingDto {
         val existing = listBuildings().firstOrNull()
@@ -114,7 +119,10 @@ object AdminRepository {
     }
 
     suspend fun getActiveQr(checkpointId: String): ActiveQrDto? {
-        val response = client.functions.invoke("admin-qr", QrFunctionRequest(action = "get_active", checkpointId = checkpointId))
+        val response = client.functions.invoke(
+            function = "admin-qr",
+            body = QrFunctionRequest(action = "get_active", checkpointId = checkpointId),
+        )
         return response.body<QrFunctionResponse>().also { it.error?.let(::error) }.qr
     }
 
@@ -203,7 +211,10 @@ object AdminRepository {
     }
 
     private suspend fun invokeQr(action: String, checkpointId: String): QrFunctionResponse {
-        val response = client.functions.invoke("admin-qr", QrFunctionRequest(action = action, checkpointId = checkpointId))
+        val response = client.functions.invoke(
+            function = "admin-qr",
+            body = QrFunctionRequest(action = action, checkpointId = checkpointId),
+        )
         return response.body<QrFunctionResponse>().also { it.error?.let(::error) }
     }
 }
