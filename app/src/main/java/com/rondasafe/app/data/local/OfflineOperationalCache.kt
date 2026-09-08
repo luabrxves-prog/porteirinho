@@ -1,15 +1,16 @@
 package com.rondasafe.app.data.local
 
 import android.content.Context
+import com.rondasafe.app.data.local.cache.OperationalCacheIndex
 import com.rondasafe.app.data.model.AvailablePatrolDto
 import com.rondasafe.app.data.model.CachedGuardDto
 import com.rondasafe.app.data.model.PortariaCacheResponse
 import com.rondasafe.app.data.model.PortariaGuardDto
+import com.rondasafe.app.domain.service.PatrolWindowEvaluator
 import com.rondasafe.app.security.OfflineCredentialVault
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
-import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
@@ -22,6 +23,9 @@ object OfflineOperationalCache {
     private const val MAX_PIN_ATTEMPTS = 5
     private const val PIN_LOCKOUT_MS = 15 * 60 * 1000L
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Volatile private var memoryCache: PortariaCacheResponse? = null
+    @Volatile private var memoryIndex: OperationalCacheIndex? = null
 
     sealed interface PinVerification {
         data class Success(val guard: CachedGuardDto) : PinVerification
@@ -40,12 +44,20 @@ object OfflineOperationalCache {
     private data class PinAttemptState(val attempts: Int, val lockedUntilEpochMs: Long)
 
     fun save(context: Context, cache: PortariaCacheResponse) {
-        OfflineCredentialVault.put(context, CACHE_KEY, json.encodeToString(cache))
+        OfflineCredentialVault.put(context.applicationContext, CACHE_KEY, json.encodeToString(cache))
+        installMemoryCache(cache)
     }
 
     fun load(context: Context): PortariaCacheResponse? {
-        val raw = OfflineCredentialVault.get(context, CACHE_KEY) ?: return null
-        return runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }.getOrNull()
+        memoryCache?.let { return it }
+        return synchronized(this) {
+            memoryCache ?: run {
+                val raw = OfflineCredentialVault.get(context.applicationContext, CACHE_KEY) ?: return@synchronized null
+                runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }
+                    .getOrNull()
+                    ?.also(::installMemoryCache)
+            }
+        }
     }
 
     fun hasCache(context: Context): Boolean = load(context) != null
@@ -61,7 +73,7 @@ object OfflineOperationalCache {
         }
 
     fun verifyPin(context: Context, guardId: String, pin: String): PinVerification {
-        val guard = load(context)?.guards?.firstOrNull { it.id == guardId }
+        val guard = index(context)?.guardById?.get(guardId)
             ?: return PinVerification.GuardUnavailable
         if (guard.credential.mustChangePin) return PinVerification.RequiresConnection
 
@@ -96,42 +108,32 @@ object OfflineOperationalCache {
     }
 
     fun clearPinLockout(context: Context, guardId: String) {
-        OfflineCredentialVault.remove(context, PIN_LOCK_KEY_PREFIX + guardId)
+        OfflineCredentialVault.remove(context.applicationContext, PIN_LOCK_KEY_PREFIX + guardId)
     }
 
     fun availablePatrols(context: Context, guardId: String): List<AvailablePatrolDto> {
         val cache = load(context) ?: return emptyList()
+        val idx = index(context) ?: return emptyList()
         val zone = runCatching { ZoneId.of(cache.building.timezone) }.getOrDefault(ZoneId.systemDefault())
         val now = LocalDateTime.now(zone)
-        val isoDay = now.dayOfWeek.value
 
         return cache.windows.mapNotNull { window ->
-            val patrol = cache.patrols.firstOrNull { it.id == window.patrolTemplateId } ?: return@mapNotNull null
-            val assignments = cache.assignments.filter { it.scheduleWindowId == window.id }
+            val patrol = idx.patrolById[window.patrolTemplateId] ?: return@mapNotNull null
+            val assignments = idx.assignmentsByWindow[window.id].orEmpty()
             if (assignments.isNotEmpty() && assignments.none { it.guardId == guardId }) return@mapNotNull null
 
             val start = parseTime(window.startTime)
             val end = parseTime(window.endTime)
-            val localNow = now.toLocalTime()
-            val active = when {
-                end > start -> window.dayOfWeek == isoDay && !localNow.isBefore(start) && !localNow.isAfter(end)
-                else -> {
-                    val previousDay = if (isoDay == DayOfWeek.MONDAY.value) 7 else isoDay - 1
-                    (window.dayOfWeek == isoDay && !localNow.isBefore(start)) ||
-                        (window.dayOfWeek == previousDay && !localNow.isAfter(end))
-                }
-            }
-            if (!active) return@mapNotNull null
+            val occurrence = PatrolWindowEvaluator.activeOccurrence(
+                dayOfWeek = window.dayOfWeek,
+                start = start,
+                end = end,
+                now = now,
+            ) ?: return@mapNotNull null
 
-            val scheduledDate = when {
-                end > start -> now.toLocalDate()
-                !localNow.isBefore(start) -> now.toLocalDate()
-                else -> now.toLocalDate().minusDays(1)
-            }
-            val scheduled = LocalDateTime.of(scheduledDate, start).atZone(zone)
-            val availableUntilDate = if (end > start) scheduledDate else scheduledDate.plusDays(1)
-            val availableUntil = LocalDateTime.of(availableUntilDate, end).atZone(zone)
-            val required = requiredCheckpointIds(context, patrol.id).size
+            val scheduled = LocalDateTime.of(occurrence.scheduledDate, start).atZone(zone)
+            val availableUntil = LocalDateTime.of(occurrence.availableUntilDate, end).atZone(zone)
+            val required = idx.requiredCheckpointsByPatrol[patrol.id].orEmpty().size
 
             AvailablePatrolDto(
                 patrolTemplateId = patrol.id,
@@ -139,35 +141,51 @@ object OfflineOperationalCache {
                 patrolName = patrol.name,
                 scheduledFor = scheduled.toInstant().toString(),
                 availableUntil = availableUntil.toInstant().toString(),
-                isLate = now.atZone(zone).toInstant().isAfter(scheduled.plusMinutes(window.lateToleranceMinutes.toLong()).toInstant()),
+                isLate = now.atZone(zone).toInstant().isAfter(
+                    scheduled.plusMinutes(window.lateToleranceMinutes.toLong()).toInstant()
+                ),
                 requiredPoints = required,
             )
         }.sortedBy { it.scheduledFor }
     }
 
     fun requiredCheckpointIds(context: Context, patrolTemplateId: String): Set<String> =
-        load(context)?.patrolCheckpoints.orEmpty()
-            .asSequence()
-            .filter { it.patrolTemplateId == patrolTemplateId && it.required }
-            .map { it.checkpointId }
-            .toSet()
+        index(context)?.requiredCheckpointsByPatrol?.get(patrolTemplateId).orEmpty()
 
     fun qrMatch(context: Context, rawQr: String): QrMatch? {
-        val cache = load(context) ?: return null
-        val hash = tokenHash(rawQr)
-        val qr = cache.qrTokens.firstOrNull { constantTimeEquals(it.tokenHash, hash) } ?: return null
-        val checkpoint = cache.checkpoints.firstOrNull { it.id == qr.checkpointId } ?: return null
+        val idx = index(context) ?: return null
+        val hash = tokenHash(rawQr).lowercase()
+        val qr = idx.qrByHash[hash] ?: return null
+        val checkpoint = idx.checkpointById[qr.checkpointId] ?: return null
         return QrMatch(hash, checkpoint.id, checkpoint.name)
     }
 
     fun tokenHash(rawQr: String): String = sha256Hex(rawQr)
 
     fun clear(context: Context) {
-        OfflineCredentialVault.remove(context, CACHE_KEY)
+        synchronized(this) {
+            memoryCache = null
+            memoryIndex = null
+        }
+        OfflineCredentialVault.remove(context.applicationContext, CACHE_KEY)
+    }
+
+    private fun index(context: Context): OperationalCacheIndex? {
+        memoryIndex?.let { return it }
+        val cache = load(context) ?: return null
+        return synchronized(this) {
+            memoryIndex ?: OperationalCacheIndex.from(cache).also { memoryIndex = it }
+        }
+    }
+
+    private fun installMemoryCache(cache: PortariaCacheResponse) {
+        memoryCache = cache
+        memoryIndex = OperationalCacheIndex.from(cache)
     }
 
     private fun loadPinAttemptState(context: Context, guardId: String): PinAttemptState {
-        val raw = OfflineCredentialVault.get(context, PIN_LOCK_KEY_PREFIX + guardId) ?: return PinAttemptState(0, 0L)
+        val raw = OfflineCredentialVault.get(context.applicationContext, PIN_LOCK_KEY_PREFIX + guardId)
+            ?: return PinAttemptState(0, 0L)
         val parts = raw.split('|')
         if (parts.size != 2) return PinAttemptState(0, 0L)
         return PinAttemptState(
@@ -178,7 +196,7 @@ object OfflineOperationalCache {
 
     private fun savePinAttemptState(context: Context, guardId: String, state: PinAttemptState) {
         OfflineCredentialVault.put(
-            context,
+            context.applicationContext,
             PIN_LOCK_KEY_PREFIX + guardId,
             "${state.attempts}|${state.lockedUntilEpochMs}",
         )
