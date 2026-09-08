@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,29 +16,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolHistoryRepository
+import com.rondasafe.app.presentation.admin.viewmodel.PatrolHistoryViewModel
 import com.rondasafe.app.ui.components.*
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 private val patrolHistoryZone = ZoneId.of("America/Sao_Paulo")
+private val historyDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+private val localDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PatrolHistoryScreen(onBack: () -> Unit) {
+fun PatrolHistoryScreen(
+    onBack: () -> Unit,
+    viewModel: PatrolHistoryViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var rows by remember { mutableStateOf<List<PatrolHistoryItemDto>>(emptyList()) }
     var guards by remember { mutableStateOf<List<GuardDto>>(emptyList()) }
     var blocks by remember { mutableStateOf<List<BlockDto>>(emptyList()) }
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
+    var configError by remember { mutableStateOf<String?>(null) }
 
-    // 0 = hoje. O histórico abre sempre focado na operação do dia.
     var days by remember { mutableIntStateOf(0) }
     var customRange by remember { mutableStateOf(false) }
     var customFrom by remember { mutableStateOf(LocalDate.now(patrolHistoryZone).minusDays(7)) }
@@ -49,42 +56,31 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
     var guard by remember { mutableStateOf<GuardDto?>(null) }
     var block by remember { mutableStateOf<BlockDto?>(null) }
     var floor by remember { mutableStateOf<FloorDto?>(null) }
-    var showMoreFilters by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var showLocationFilters by remember { mutableStateOf(false) }
 
     fun reload() {
-        scope.launch {
-            loading = true
-            error = null
-            runCatching {
-                val today = LocalDate.now(patrolHistoryZone)
-                val fromDate = when {
-                    customRange -> customFrom
-                    days == 0 -> today
-                    else -> today.minusDays((days - 1).toLong())
-                }
-                val toDate = if (customRange) customTo else today
-
-                PatrolHistoryRepository.listRange(
-                    from = fromDate.atStartOfDay(patrolHistoryZone).toInstant(),
-                    to = toDate.plusDays(1).atStartOfDay(patrolHistoryZone).toInstant().minusMillis(1),
-                    status = status,
-                    guardId = guard?.id,
-                    blockId = block?.id,
-                    floorId = floor?.id,
-                )
-            }.onSuccess { rows = it }
-                .onFailure { error = it.message }
-            loading = false
+        val today = LocalDate.now(patrolHistoryZone)
+        val fromDate = when {
+            customRange -> customFrom
+            days == 0 -> today
+            else -> today.minusDays((days - 1).toLong())
         }
+        val toDate = if (customRange) customTo else today
+        viewModel.load(
+            from = fromDate.atStartOfDay(patrolHistoryZone).toInstant(),
+            to = toDate.plusDays(1).atStartOfDay(patrolHistoryZone).toInstant().minusMillis(1),
+            status = status,
+            guardId = guard?.id,
+            blockId = block?.id,
+            floorId = floor?.id,
+        )
     }
 
     LaunchedEffect(Unit) {
         runCatching {
             guards = GuardRepository.list(includeArchived = true)
             blocks = AdminRepository.defaultBlocks()
-        }.onFailure { error = it.message }
+        }.onFailure { configError = it.message }
         reload()
     }
 
@@ -109,13 +105,9 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
             item {
                 SectionHeading(
                     if (viewingToday) "Rondas de hoje" else "Rondas do período",
-                    if (viewingToday)
-                        "Veja rapidamente se as rondas previstas para hoje estão sendo realizadas corretamente."
-                    else
-                        "Consulte rondas anteriores somente quando precisar verificar outro período.",
+                    "Os registros são carregados em páginas, do mais recente para o mais antigo.",
                 )
             }
-
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -127,48 +119,36 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.CalendarMonth, null, tint = RondaSafeColors.Blue)
                             Spacer(Modifier.width(8.dp))
-                            Text("Período", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Período", fontWeight = FontWeight.Bold)
                         }
-
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(0 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (option, label) ->
+                            listOf(0 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (value, label) ->
                                 FilterChip(
-                                    selected = !customRange && days == option,
-                                    onClick = {
-                                        customRange = false
-                                        days = option
-                                        reload()
-                                    },
-                                    label = { Text(label, maxLines = 1) },
+                                    selected = !customRange && days == value,
+                                    onClick = { customRange = false; days = value; reload() },
+                                    label = { Text(label) },
                                     modifier = Modifier.weight(1f),
                                 )
                             }
                         }
-
                         OutlinedButton(
                             onClick = { customRange = !customRange },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                        ) {
-                            Text(if (customRange) "Fechar outro período" else "Ver outro período", maxLines = 1)
-                        }
-
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (customRange) "Fechar outro período" else "Ver outro período") }
                         if (customRange) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 DateRangeButton("De", customFrom, Modifier.weight(1f)) { datePickerTarget = "from" }
                                 DateRangeButton("Até", customTo, Modifier.weight(1f)) { datePickerTarget = "to" }
                             }
                             Button(
-                                onClick = { reload() },
+                                onClick = ::reload,
                                 enabled = !customFrom.isAfter(customTo),
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth(),
                             ) { Text("Aplicar período") }
                         }
                     }
                 }
             }
-
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -176,13 +156,13 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = BorderStroke(1.dp, RondaSafeColors.Border),
                 ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.FilterAlt, null, tint = RondaSafeColors.Blue)
                             Spacer(Modifier.width(8.dp))
-                            Text("Filtros", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Filtros", fontWeight = FontWeight.Bold)
                         }
-                        FilterMenu(
+                        HistoryFilterMenu(
                             label = "Status",
                             selected = status?.let(::historyStatusLabel) ?: "Todos os status",
                             options = listOf(
@@ -193,76 +173,72 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                                 "MISSED" to "Não realizada",
                                 "IN_PROGRESS" to "Em andamento",
                             ),
-                            onSelected = { status = it; reload() },
-                        )
-                        FilterMenu(
+                        ) { status = it; reload() }
+                        HistoryFilterMenu(
                             label = "Porteiro",
                             selected = guard?.name ?: "Todos os porteiros",
                             options = listOf(null to "Todos os porteiros") + guards.map { it to it.name },
-                            onSelected = { guard = it; reload() },
-                        )
-
+                        ) { guard = it; reload() }
                         OutlinedButton(
-                            onClick = { showMoreFilters = !showMoreFilters },
+                            onClick = { showLocationFilters = !showLocationFilters },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                        ) {
-                            Text(if (showMoreFilters) "Ocultar filtros de local" else "Filtrar por bloco e andar")
-                            Spacer(Modifier.width(6.dp))
-                            Icon(Icons.Rounded.KeyboardArrowDown, null)
-                        }
-
-                        if (showMoreFilters) {
-                            FilterMenu(
+                        ) { Text(if (showLocationFilters) "Ocultar bloco e andar" else "Filtrar por bloco e andar") }
+                        if (showLocationFilters) {
+                            HistoryFilterMenu(
                                 label = "Bloco",
                                 selected = block?.name ?: "Todos os blocos",
                                 options = listOf(null to "Todos os blocos") + blocks.map { it to it.name },
-                                onSelected = { block = it; reload() },
-                            )
-                            if (block != null) {
-                                FilterMenu(
+                            ) { block = it; reload() }
+                            block?.let {
+                                HistoryFilterMenu(
                                     label = "Andar",
                                     selected = floor?.name ?: "Todos os andares",
                                     options = listOf(null to "Todos os andares") + floors.map { it to it.name },
-                                    onSelected = { floor = it; reload() },
-                                )
+                                ) { floor = it; reload() }
                             }
                         }
                     }
                 }
             }
 
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-
-            if (!loading && rows.isEmpty()) {
+            if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            (state.error ?: configError)?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (!state.loading && state.items.isEmpty()) {
                 item {
                     EmptyStateCard(
                         if (viewingToday) "Nenhuma ronda prevista para hoje" else "Nenhuma ronda encontrada",
-                        if (viewingToday)
-                            "Não há rondas programadas para hoje com os filtros atuais."
-                        else
-                            "Não há registros para o período e os filtros selecionados.",
+                        "Não há registros para o período e filtros selecionados.",
                         Icons.Rounded.History,
                     )
                 }
             }
-
-            items(rows, key = { it.id }) { item -> PatrolHistoryCard(item) }
+            items(state.items, key = { it.id }) { item -> PatrolHistoryCard(item) }
+            if (state.hasMore) {
+                item {
+                    OutlinedButton(
+                        onClick = viewModel::loadMore,
+                        enabled = !state.loadingMore,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (state.loadingMore) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Carregar mais rondas")
+                    }
+                }
+            }
             item { Spacer(Modifier.height(18.dp)) }
         }
     }
 
     datePickerTarget?.let { target ->
         val current = if (target == "from") customFrom else customTo
-        val state = rememberDatePickerState(
+        val picker = rememberDatePickerState(
             initialSelectedDateMillis = current.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
         )
         DatePickerDialog(
             onDismissRequest = { datePickerTarget = null },
             confirmButton = {
                 TextButton(onClick = {
-                    state.selectedDateMillis?.let { millis ->
+                    picker.selectedDateMillis?.let { millis ->
                         val selected = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
                         if (target == "from") customFrom = selected else customTo = selected
                     }
@@ -270,21 +246,39 @@ fun PatrolHistoryScreen(onBack: () -> Unit) {
                 }) { Text("Confirmar") }
             },
             dismissButton = { TextButton(onClick = { datePickerTarget = null }) { Text("Cancelar") } },
-        ) { DatePicker(state = state) }
+        ) { DatePicker(state = picker) }
     }
 }
 
 @Composable
 private fun DateRangeButton(label: String, date: LocalDate, modifier: Modifier, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.height(58.dp),
-        shape = RoundedCornerShape(14.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp),
-    ) {
-        Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(onClick = onClick, modifier = modifier.height(58.dp)) {
+        Column(Modifier.fillMaxWidth()) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Muted)
-            Text(formatLocalDate(date), maxLines = 1, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+            Text(date.format(localDateFormatter), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun <T> HistoryFilterMenu(
+    label: String,
+    selected: String,
+    options: List<Pair<T?, String>>,
+    onSelected: (T?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Muted)
+                Text(selected, maxLines = 1)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (value, text) ->
+                DropdownMenuItem(text = { Text(text) }, onClick = { expanded = false; onSelected(value) })
+            }
         }
     }
 }
@@ -295,7 +289,7 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
     var expanded by remember { mutableStateOf(false) }
     var loadingPoints by remember { mutableStateOf(false) }
     var points by remember { mutableStateOf<List<PatrolHistoryPointDto>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var pointError by remember { mutableStateOf<String?>(null) }
 
     Card(
         onClick = {
@@ -303,10 +297,9 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
             if (expanded && points.isEmpty() && !loadingPoints) {
                 scope.launch {
                     loadingPoints = true
-                    error = null
                     runCatching { PatrolHistoryRepository.points(item) }
                         .onSuccess { points = it }
-                        .onFailure { error = it.message }
+                        .onFailure { pointError = it.message }
                     loadingPoints = false
                 }
             }
@@ -315,56 +308,24 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, RondaSafeColors.Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        item.patrolName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = RondaSafeColors.Navy,
-                    )
-                    Text(
-                        item.guardName ?: "Sem porteiro definido",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = RondaSafeColors.Muted,
-                    )
+                    Text(item.patrolName, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                    Text(item.guardName ?: "Sem porteiro definido", color = RondaSafeColors.Muted)
                 }
                 StatusPill(item.displayStatus)
             }
-            HorizontalDivider(color = RondaSafeColors.Border.copy(alpha = .7f))
-            Text(
-                historyScheduledLabel(item.scheduledFor),
-                style = MaterialTheme.typography.bodySmall,
-                color = RondaSafeColors.Muted,
-            )
-            Text(
-                "${item.visitedPoints} de ${item.requiredPoints} pontos visitados",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-
+            Text(historyScheduledLabel(item.scheduledFor), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+            Text("${item.visitedPoints} de ${item.requiredPoints} pontos visitados", fontWeight = FontWeight.SemiBold)
             if (expanded) {
-                Spacer(Modifier.height(3.dp))
                 item.startedAt?.let { Text("Início: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
                 item.finishedAt?.let { Text("Fim: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
-                if (item.capturedOffline) {
-                    Text("Sincronizada após uso offline", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
-                }
-                if (item.suspicious) {
-                    Text("Precisa de revisão", color = RondaSafeColors.Danger, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                }
-                if (item.missingPoints > 0) {
-                    Text(
-                        "${item.missingPoints} ponto(s) não visitado(s)",
-                        color = RondaSafeColors.Danger,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                if (item.capturedOffline) Text("Sincronizada após uso offline", style = MaterialTheme.typography.bodySmall)
+                if (item.suspicious) Text("Precisa de revisão", color = RondaSafeColors.Danger)
                 if (loadingPoints) LinearProgressIndicator(Modifier.fillMaxWidth())
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                pointError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 points.forEach { point ->
                     Text(
                         "${if (point.visited) "✓" else "○"} ${point.blockName} • ${point.floorName} • ${point.checkpointName}",
@@ -394,42 +355,7 @@ private fun StatusPill(status: String) {
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = color,
-            maxLines = 1,
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun <T> FilterMenu(
-    label: String,
-    selected: String,
-    options: List<Pair<T?, String>>,
-    onSelected: (T?) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(
-            value = selected,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor().fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true,
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, title) ->
-                DropdownMenuItem(
-                    text = { Text(title) },
-                    onClick = {
-                        expanded = false
-                        onSelected(value)
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -442,21 +368,13 @@ private fun historyStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm")
-private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-
 private fun historyDate(value: String): String = runCatching {
-    Instant.parse(value).atZone(patrolHistoryZone).format(dateTimeFormatter)
-}.getOrElse { value.replace("T", " ").substringBefore(".").replace("Z", "") }
+    Instant.parse(value).atZone(patrolHistoryZone).format(historyDateFormatter)
+}.getOrDefault(value)
 
 private fun historyScheduledLabel(value: String): String = runCatching {
-    val dateTime = Instant.parse(value).atZone(patrolHistoryZone)
-    if (dateTime.toLocalDate() == LocalDate.now(patrolHistoryZone)) {
-        "Prevista para ${dateTime.format(timeFormatter)}"
-    } else {
-        "Prevista em ${dateTime.format(dateTimeFormatter)}"
-    }
-}.getOrElse { "Prevista em ${historyDate(value)}" }
-
-private fun formatLocalDate(value: LocalDate): String = value.format(dateFormatter)
+    val zdt = Instant.parse(value).atZone(patrolHistoryZone)
+    val today = LocalDate.now(patrolHistoryZone)
+    if (zdt.toLocalDate() == today) "Prevista para ${zdt.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+    else "Prevista em ${zdt.format(historyDateFormatter)}"
+}.getOrDefault(value)
