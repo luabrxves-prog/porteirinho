@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.rondasafe.app.core.time.AppTime
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.AuthRepository
-import com.rondasafe.app.data.repository.PatrolHistoryRepository
 import com.rondasafe.app.presentation.admin.state.AdminDashboardState
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -20,9 +19,7 @@ class AdminDashboardViewModel(application: Application) : AndroidViewModel(appli
     private val _state = MutableStateFlow(AdminDashboardState())
     val state: StateFlow<AdminDashboardState> = _state.asStateFlow()
 
-    init {
-        refresh()
-    }
+    init { refresh() }
 
     fun refresh() {
         viewModelScope.launch {
@@ -30,31 +27,32 @@ class AdminDashboardViewModel(application: Application) : AndroidViewModel(appli
             runCatching {
                 coroutineScope {
                     val condominiumDeferred = async { AdminRepository.condominium() }
-                    val alertsDeferred = async { AdminRepository.listAlerts().size }
-                    val todayDeferred = async {
-                        val today = AppTime.nowDate()
-                        PatrolHistoryRepository.listRange(
-                            from = today.atStartOfDay(AppTime.zone).toInstant(),
-                            to = today.plusDays(1).atStartOfDay(AppTime.zone).toInstant().minusMillis(1),
+                    val today = AppTime.nowDate()
+                    val from = today.atStartOfDay(AppTime.zone).toInstant()
+                    val to = today.plusDays(1).atStartOfDay(AppTime.zone).toInstant().minusMillis(1)
+                    val metricsDeferred = async { AdminRepository.dashboardMetrics(from, to) }
+                    val condominium = condominiumDeferred.await()
+                    val metrics = metricsDeferred.await()
+                    AdminDashboardState(
+                        condominium = condominium.name,
+                        total = metrics.scheduled,
+                        completed = metrics.completedOk,
+                        attention = metrics.attention,
+                        inProgress = metrics.inProgress,
+                        missed = metrics.missed,
+                        openAlerts = metrics.openAlerts,
+                        loading = false,
+                    )
+                }
+            }.onSuccess { _state.value = it }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            error = error.message ?: "Não foi possível carregar o painel.",
                         )
                     }
-                    AdminDashboardState(
-                        condominium = condominiumDeferred.await().name,
-                        today = todayDeferred.await(),
-                        openAlerts = alertsDeferred.await(),
-                        loading = false,
-                    )
                 }
-            }.onSuccess { loaded ->
-                _state.value = loaded
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        loading = false,
-                        error = error.message ?: "Não foi possível carregar o painel.",
-                    )
-                }
-            }
         }
     }
 
