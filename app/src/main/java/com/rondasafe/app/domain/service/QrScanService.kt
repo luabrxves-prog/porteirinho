@@ -2,7 +2,6 @@ package com.rondasafe.app.domain.service
 
 import android.content.Context
 import com.rondasafe.app.core.constants.OfflineEventType
-import com.rondasafe.app.core.constants.PatrolScanResult
 import com.rondasafe.app.data.local.LocalVisitedCheckpointEntity
 import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineOperationalCache
@@ -30,26 +29,27 @@ class QrScanService(
         val match = OfflineOperationalCache.qrMatch(appContext, qr)
         val required = OfflineOperationalCache.requiredCheckpointIds(appContext, run.patrolTemplateId)
         val before = dao.localVisitCount(runId)
-
-        val result: PatrolScanResult
         val checkpointId = match?.checkpointId
         val checkpointName = match?.checkpointName
 
-        result = when {
-            match == null -> PatrolScanResult.UNKNOWN_QR
-            match.checkpointId !in required -> PatrolScanResult.NOT_IN_ROUND
-            else -> {
-                val inserted = dao.addLocalVisit(
-                    LocalVisitedCheckpointEntity(
-                        runClientEventId = runId,
-                        checkpointId = match.checkpointId,
-                        checkpointName = match.checkpointName,
-                        scannedAtLocal = capturedAt,
-                    )
+        val alreadyVisited = if (match != null && match.checkpointId in required) {
+            dao.addLocalVisit(
+                LocalVisitedCheckpointEntity(
+                    runClientEventId = runId,
+                    checkpointId = match.checkpointId,
+                    checkpointName = match.checkpointName,
+                    scannedAtLocal = capturedAt,
                 )
-                if (inserted == -1L) PatrolScanResult.DUPLICATE else PatrolScanResult.ACCEPTED
-            }
+            ) == -1L
+        } else {
+            false
         }
+
+        val result = QrScanEvaluator.evaluate(
+            checkpointId = checkpointId,
+            requiredCheckpointIds = required,
+            alreadyVisited = alreadyVisited,
+        )
 
         val visited = dao.localVisitCount(runId)
         if (visited != before) dao.updateLocalVisited(runId, visited)
