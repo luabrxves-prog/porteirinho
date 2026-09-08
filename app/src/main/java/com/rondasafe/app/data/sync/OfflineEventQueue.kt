@@ -4,7 +4,6 @@ import android.content.Context
 import com.rondasafe.app.core.constants.OfflineEventType
 import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineSyncWorker
-import com.rondasafe.app.data.local.PendingEventEntity
 import java.util.UUID
 
 class OfflineEventQueue(context: Context) {
@@ -19,12 +18,12 @@ class OfflineEventQueue(context: Context) {
         clientEventId: String = UUID.randomUUID().toString(),
     ): String {
         dao.enqueue(
-            PendingEventEntity(
-                clientEventId = clientEventId,
-                type = type.name,
+            PendingEventFactory.create(
+                type = type,
                 payloadJson = payloadJson,
                 createdAtLocal = createdAtLocal,
                 monotonicMs = monotonicMs,
+                clientEventId = clientEventId,
             )
         )
         requestSync()
