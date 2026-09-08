@@ -38,6 +38,28 @@ object PatrolRepository {
             }
         }.decodeList<PatrolScheduleWindowDto>().sortedBy { it.dayOfWeek }
 
+    suspend fun listActiveWindows(): List<PatrolScheduleWindowDto> =
+        client.from("patrol_schedule_windows").select {
+            filter { eq("active", true) }
+        }.decodeList<PatrolScheduleWindowDto>()
+
+    suspend fun updateTemplateTime(templateId: String, startTime: String, endTime: String) {
+        require(startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido." }
+        require(endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido." }
+
+        client.from("patrol_schedule_windows").update(
+            UpdatePatrolScheduleWindowTimeDto(
+                startTime = "$startTime:00",
+                endTime = "$endTime:00",
+            )
+        ) {
+            filter {
+                eq("patrol_template_id", templateId)
+                eq("active", true)
+            }
+        }
+    }
+
     suspend fun listTemplateCheckpoints(templateId: String, includeArchived: Boolean = false): List<PatrolTemplateCheckpointDto> =
         client.from("patrol_template_checkpoints").select {
             filter {
