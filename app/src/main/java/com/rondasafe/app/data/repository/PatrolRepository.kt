@@ -43,6 +43,11 @@ object PatrolRepository {
             filter { eq("active", true) }
         }.decodeList<PatrolScheduleWindowDto>()
 
+    suspend fun listActiveAssignments(): List<PatrolScheduleAssignmentDto> =
+        client.from("patrol_schedule_assignments").select {
+            filter { eq("active", true) }
+        }.decodeList()
+
     suspend fun updateTemplateTime(templateId: String, startTime: String, endTime: String) {
         require(startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido." }
         require(endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido." }
