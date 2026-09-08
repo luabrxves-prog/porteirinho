@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -14,7 +15,10 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "pending_events")
+@Entity(
+    tableName = "pending_events",
+    indices = [Index(value = ["state", "createdAtLocal"])],
+)
 data class PendingEventEntity(
     @PrimaryKey val clientEventId: String,
     val type: String,
@@ -31,7 +35,10 @@ data class PendingEventEntity(
     }
 }
 
-@Entity(tableName = "local_shifts")
+@Entity(
+    tableName = "local_shifts",
+    indices = [Index(value = ["active", "startedAtLocal"])],
+)
 data class LocalShiftEntity(
     @PrimaryKey val shiftClientEventId: String,
     val guardId: String,
@@ -40,7 +47,13 @@ data class LocalShiftEntity(
     val active: Boolean,
 )
 
-@Entity(tableName = "local_patrol_runs")
+@Entity(
+    tableName = "local_patrol_runs",
+    indices = [
+        Index(value = ["active", "startedAtLocal"]),
+        Index(value = ["scheduleWindowId", "scheduledFor"]),
+    ],
+)
 data class LocalPatrolRunEntity(
     @PrimaryKey val runClientEventId: String,
     val shiftClientEventId: String,
@@ -59,6 +72,7 @@ data class LocalPatrolRunEntity(
 @Entity(
     tableName = "local_visited_checkpoints",
     primaryKeys = ["runClientEventId", "checkpointId"],
+    indices = [Index(value = ["runClientEventId", "scannedAtLocal"])],
 )
 data class LocalVisitedCheckpointEntity(
     val runClientEventId: String,
@@ -75,8 +89,8 @@ interface OfflineDao {
     @Query("select * from pending_events where state = 'PENDING' order by createdAtLocal, rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
 
-    @Query("select * from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc")
-    suspend fun permanentFailures(): List<PendingEventEntity>
+    @Query("select * from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc limit :limit")
+    suspend fun permanentFailures(limit: Int = 100): List<PendingEventEntity>
 
     @Query("select count(*) from pending_events where state = 'PENDING'")
     suspend fun pendingCount(): Int
@@ -102,6 +116,9 @@ interface OfflineDao {
     @Query("update pending_events set state = 'PENDING', lastError = null where clientEventId = :id and state = 'FAILED_PERMANENT'")
     suspend fun requeuePermanentFailure(id: String)
 
+    @Query("delete from pending_events where state = 'FAILED_PERMANENT' and createdAtLocal < :cutoff")
+    suspend fun deleteExpiredPermanentFailures(cutoff: String)
+
     @Query("""
         update pending_events
         set state = 'PENDING', attempts = 0, lastError = null
@@ -123,6 +140,9 @@ interface OfflineDao {
     @Query("update local_shifts set active = 0 where shiftClientEventId = :id")
     suspend fun finishLocalShift(id: String)
 
+    @Query("delete from local_shifts where active = 0 and startedAtLocal < :cutoff")
+    suspend fun deleteOldInactiveShifts(cutoff: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveLocalRun(run: LocalPatrolRunEntity)
 
@@ -141,6 +161,9 @@ interface OfflineDao {
     @Query("update local_patrol_runs set active = 0 where runClientEventId = :id")
     suspend fun finishLocalRun(id: String)
 
+    @Query("delete from local_patrol_runs where active = 0 and startedAtLocal < :cutoff")
+    suspend fun deleteOldInactiveRuns(cutoff: String)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addLocalVisit(visit: LocalVisitedCheckpointEntity): Long
 
@@ -149,16 +172,14 @@ interface OfflineDao {
 
     @Query("select checkpointId from local_visited_checkpoints where runClientEventId = :runId")
     suspend fun localVisitedCheckpointIds(runId: String): List<String>
+
+    @Query("delete from local_visited_checkpoints where runClientEventId = :runId")
+    suspend fun deleteLocalVisits(runId: String)
 }
 
 @Database(
-    entities = [
-        PendingEventEntity::class,
-        LocalShiftEntity::class,
-        LocalPatrolRunEntity::class,
-        LocalVisitedCheckpointEntity::class,
-    ],
-    version = 5,
+    entities = [PendingEventEntity::class, LocalShiftEntity::class, LocalPatrolRunEntity::class, LocalVisitedCheckpointEntity::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {
@@ -175,35 +196,28 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("DROP TABLE IF EXISTS `offline_guard_access`")
-            }
-        }
-
-        private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `pending_events` ADD COLUMN `state` TEXT NOT NULL DEFAULT 'PENDING'")
-            }
-        }
-
+        private val MIGRATION_2_3 = object : Migration(2, 3) { override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("DROP TABLE IF EXISTS `offline_guard_access`") } }
+        private val MIGRATION_3_4 = object : Migration(3, 4) { override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE `pending_events` ADD COLUMN `state` TEXT NOT NULL DEFAULT 'PENDING'") } }
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS `offline_qr_tokens`")
                 db.execSQL("DROP TABLE IF EXISTS `offline_patrol_state`")
             }
         }
-
-        fun get(context: Context): OfflineDatabase =
-            instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    OfflineDatabase::class.java,
-                    "rondasafe_offline.db",
-                )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-                    .build()
-                    .also { instance = it }
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_events_state_createdAtLocal` ON `pending_events` (`state`, `createdAtLocal`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_shifts_active_startedAtLocal` ON `local_shifts` (`active`, `startedAtLocal`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_patrol_runs_active_startedAtLocal` ON `local_patrol_runs` (`active`, `startedAtLocal`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_patrol_runs_scheduleWindowId_scheduledFor` ON `local_patrol_runs` (`scheduleWindowId`, `scheduledFor`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_visited_checkpoints_runClientEventId_scannedAtLocal` ON `local_visited_checkpoints` (`runClientEventId`, `scannedAtLocal`)")
             }
+        }
+
+        fun get(context: Context): OfflineDatabase = instance ?: synchronized(this) {
+            instance ?: Room.databaseBuilder(context.applicationContext, OfflineDatabase::class.java, "rondasafe_offline.db")
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .build().also { instance = it }
+        }
     }
 }
