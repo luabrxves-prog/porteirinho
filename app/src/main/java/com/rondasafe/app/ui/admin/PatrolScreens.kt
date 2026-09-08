@@ -27,6 +27,12 @@ private val dayNames = mapOf(
     1 to "Seg", 2 to "Ter", 3 to "Qua", 4 to "Qui", 5 to "Sex", 6 to "Sáb", 7 to "Dom",
 )
 
+private val fixedPatrolNames = listOf(
+    "Ronda Matutina",
+    "Ronda Vespertina",
+    "Ronda Noturna",
+)
+
 private data class FixedPatrolRow(
     val template: PatrolTemplateDto,
     val windows: List<PatrolScheduleWindowDto>,
@@ -51,12 +57,22 @@ fun PatrolTemplatesScreen(
                 val windowsDeferred = async { PatrolRepository.listActiveWindows() }
                 val templates = templatesDeferred.await()
                 val windowsByTemplate = windowsDeferred.await().groupBy { it.patrolTemplateId }
-                templates
-                    .sortedBy { it.name.lowercase() }
-                    .map { FixedPatrolRow(it, windowsByTemplate[it.id].orEmpty().sortedBy { window -> window.dayOfWeek }) }
+                val templatesByName = templates.associateBy { it.name.trim().lowercase() }
+
+                fixedPatrolNames.mapNotNull { expectedName ->
+                    val template = templatesByName[expectedName.lowercase()] ?: return@mapNotNull null
+                    FixedPatrolRow(
+                        template = template,
+                        windows = windowsByTemplate[template.id].orEmpty().sortedBy { it.dayOfWeek },
+                    )
+                }
             }
-        }.onSuccess { rows = it }
-            .onFailure { error = it.message ?: "Não foi possível carregar as rondas." }
+        }.onSuccess {
+            rows = it
+            if (it.size != fixedPatrolNames.size) {
+                error = "As 3 rondas fixas não estão completas no sistema."
+            }
+        }.onFailure { error = it.message ?: "Não foi possível carregar as rondas." }
         loading = false
     }
 
@@ -71,8 +87,8 @@ fun PatrolTemplatesScreen(
         ) {
             item {
                 SectionHeading(
-                    "Rondas fixas",
-                    "A estrutura das rondas é fixa. Aqui você altera somente o horário de início e fim.",
+                    "3 rondas fixas",
+                    "Matutina, Vespertina e Noturna. O administrador altera somente início e fim.",
                 )
             }
             item {
@@ -86,7 +102,7 @@ fun PatrolTemplatesScreen(
                         Icon(Icons.Rounded.Lock, null, tint = RondaSafeColors.Navy)
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            "Nome, dias e pontos da ronda não podem ser alterados.",
+                            "As rondas, os dias e os pontos são fixos. Somente os horários podem ser alterados.",
                             color = RondaSafeColors.Navy,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -95,9 +111,6 @@ fun PatrolTemplatesScreen(
             }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            if (!loading && rows.isEmpty()) {
-                item { EmptyStateCard("Nenhuma ronda ativa", "As rondas fixas precisam estar cadastradas no sistema.", Icons.Rounded.Schedule) }
-            }
             items(rows, key = { it.template.id }) { row ->
                 FixedPatrolCard(row = row, onEdit = { onEdit(row.template) })
             }
@@ -108,7 +121,6 @@ fun PatrolTemplatesScreen(
 
 @Composable
 private fun FixedPatrolCard(row: FixedPatrolRow, onEdit: () -> Unit) {
-    val first = row.windows.firstOrNull()
     val uniqueTimes = row.windows
         .map { it.startTime.take(5) to it.endTime.take(5) }
         .distinct()
@@ -116,11 +128,6 @@ private fun FixedPatrolCard(row: FixedPatrolRow, onEdit: () -> Unit) {
         uniqueTimes.isEmpty() -> "Horário não configurado"
         uniqueTimes.size == 1 -> "${uniqueTimes.first().first} – ${uniqueTimes.first().second}"
         else -> "Horários diferentes por dia"
-    }
-    val daysLabel = if (row.windows.size == 7) {
-        "Todos os dias"
-    } else {
-        row.windows.joinToString(" • ") { dayNames[it.dayOfWeek].orEmpty() }
     }
 
     Card(
@@ -139,7 +146,7 @@ private fun FixedPatrolCard(row: FixedPatrolRow, onEdit: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(row.template.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
                     Text(timeLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = RondaSafeColors.Text)
-                    Text(daysLabel, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
+                    Text("Todos os dias", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 }
                 Surface(shape = RoundedCornerShape(50), color = RondaSafeColors.GreenSoft) {
                     Text("Fixa", modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Green)
@@ -161,7 +168,6 @@ fun CreatePatrolTemplateScreen(
     val scope = rememberCoroutineScope()
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
-    var daysLabel by remember { mutableStateOf("") }
     var initialLoading by remember { mutableStateOf(template != null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -178,7 +184,6 @@ fun CreatePatrolTemplateScreen(
                 val first = windows.firstOrNull()
                 startTime = first?.startTime?.take(5).orEmpty()
                 endTime = first?.endTime?.take(5).orEmpty()
-                daysLabel = if (windows.size == 7) "Todos os dias" else windows.joinToString(" • ") { dayNames[it.dayOfWeek].orEmpty() }
             }
             .onFailure { error = it.message ?: "Não foi possível carregar o horário." }
         initialLoading = false
@@ -193,15 +198,15 @@ fun CreatePatrolTemplateScreen(
             return@Scaffold
         }
 
-        if (template == null) {
+        if (template == null || template.name !in fixedPatrolNames) {
             Column(
                 Modifier.padding(padding).padding(RondaSafeUi.ScreenPadding).fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 EmptyStateCard(
-                    "Rondas são fixas",
-                    "Não é possível criar novas rondas pelo aplicativo. Volte e altere apenas os horários das rondas existentes.",
+                    "Ronda fixa inválida",
+                    "Somente Matutina, Vespertina e Noturna podem ser administradas.",
                     Icons.Rounded.Lock,
                 )
                 Spacer(Modifier.height(14.dp))
@@ -210,14 +215,15 @@ fun CreatePatrolTemplateScreen(
             return@Scaffold
         }
 
+        val timeRegex = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+        val validTimes = startTime.matches(timeRegex) && endTime.matches(timeRegex)
+
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
             contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                SectionHeading(template.name, "Somente o horário pode ser alterado.")
-            }
+            item { SectionHeading(template.name, "Altere somente o horário desta ronda.") }
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -226,9 +232,8 @@ fun CreatePatrolTemplateScreen(
                     border = BorderStroke(1.dp, RondaSafeColors.Blue.copy(alpha = .18f)),
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("Estrutura bloqueada", fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                        Text("Dias: $daysLabel", color = RondaSafeColors.Muted, style = MaterialTheme.typography.bodySmall)
-                        Text("Nome, dias, pontos e responsáveis permanecem inalterados.", color = RondaSafeColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("Ronda fixa", fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
+                        Text("Executada todos os dias. Nome e pontos não podem ser alterados.", color = RondaSafeColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -238,8 +243,9 @@ fun CreatePatrolTemplateScreen(
                         value = startTime,
                         onValueChange = { startTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5) },
                         label = { Text("Início") },
-                        placeholder = { Text("22:00") },
+                        placeholder = { Text("06:00") },
                         singleLine = true,
+                        isError = startTime.isNotEmpty() && startTime.length == 5 && !startTime.matches(timeRegex),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                     )
@@ -247,14 +253,12 @@ fun CreatePatrolTemplateScreen(
                         value = endTime,
                         onValueChange = { endTime = it.filter { ch -> ch.isDigit() || ch == ':' }.take(5) },
                         label = { Text("Fim") },
-                        placeholder = { Text("06:00") },
+                        placeholder = { Text("14:00") },
                         singleLine = true,
+                        isError = endTime.isNotEmpty() && endTime.length == 5 && !endTime.matches(timeRegex),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                     )
-                }
-                if (startTime.length == 5 && endTime.length == 5 && endTime <= startTime) {
-                    Text("A ronda termina no dia seguinte.", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 }
             }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -262,6 +266,7 @@ fun CreatePatrolTemplateScreen(
                 Button(
                     onClick = {
                         scope.launch {
+                            if (saving) return@launch
                             saving = true
                             error = null
                             runCatching { PatrolRepository.updateTemplateTime(template.id, startTime, endTime) }
@@ -270,7 +275,7 @@ fun CreatePatrolTemplateScreen(
                             saving = false
                         }
                     },
-                    enabled = !saving && startTime.length == 5 && endTime.length == 5,
+                    enabled = !saving && validTimes,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
