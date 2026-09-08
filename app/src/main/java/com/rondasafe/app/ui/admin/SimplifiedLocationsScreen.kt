@@ -8,8 +8,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
-import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,12 +36,13 @@ fun SimplifiedLocationsScreen(
     var selectedBlock by remember { mutableStateOf<BlockDto?>(null) }
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var floorsLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
     var addFloorOpen by remember { mutableStateOf(false) }
-    var archiveTarget by remember { mutableStateOf<FloorDto?>(null) }
+    var removeTarget by remember { mutableStateOf<FloorDto?>(null) }
+    var removingId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(refresh) {
+    LaunchedEffect(Unit) {
         loading = true
         error = null
         runCatching {
@@ -51,21 +52,24 @@ fun SimplifiedLocationsScreen(
         }.onSuccess { (condominium, defaultBlocks) ->
             building = condominium
             blocks = defaultBlocks
-            selectedBlock = defaultBlocks.firstOrNull { it.id == selectedBlock?.id } ?: defaultBlocks.firstOrNull()
+            selectedBlock = defaultBlocks.firstOrNull()
         }.onFailure {
-            error = userFriendlyError(it, "Não foi possível carregar os blocos do condomínio.")
+            error = userFriendlyError(it, "Não foi possível carregar os locais do condomínio.")
         }
         loading = false
     }
 
-    LaunchedEffect(selectedBlock?.id, refresh) {
+    LaunchedEffect(selectedBlock?.id) {
         val block = selectedBlock ?: run {
             floors = emptyList()
             return@LaunchedEffect
         }
+        floorsLoading = true
+        error = null
         runCatching { AdminRepository.listFloors(block.id).filter { it.active } }
             .onSuccess { floors = it }
             .onFailure { error = userFriendlyError(it, "Não foi possível carregar os andares deste bloco.") }
+        floorsLoading = false
     }
 
     Scaffold(
@@ -80,7 +84,7 @@ fun SimplifiedLocationsScreen(
             item {
                 SectionHeading(
                     building?.name ?: "Condomínio",
-                    "Andares e pontos de controle organizados por bloco.",
+                    "Escolha o bloco e depois o andar para gerenciar os pontos.",
                 )
             }
 
@@ -96,29 +100,25 @@ fun SimplifiedLocationsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Apartment, null, tint = RondaSafeColors.Blue)
                             Spacer(Modifier.width(8.dp))
-                            Text("Escolha o bloco", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+                            Text("Bloco", fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
                         }
-                        if (blocks.isEmpty() && !loading) {
-                            Text("Os blocos padrão não puderam ser carregados.", color = RondaSafeColors.Muted)
-                        } else {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                blocks.take(2).forEach { block ->
-                                    FilterChip(
-                                        selected = selectedBlock?.id == block.id,
-                                        onClick = { selectedBlock = block; error = null },
-                                        label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            blocks.take(2).forEach { block ->
+                                FilterChip(
+                                    selected = selectedBlock?.id == block.id,
+                                    onClick = { selectedBlock = block },
+                                    label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
                     }
                 }
             }
 
-            item { SectionHeading("Andares", if (selectedBlock == null) "Selecione um bloco" else "${floors.size} ativo(s)") }
+            item { SectionHeading("Andares", if (floorsLoading) "Carregando..." else "${floors.size} cadastrado(s)") }
 
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            if (loading || floorsLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let {
                 item {
                     Surface(
@@ -130,19 +130,20 @@ fun SimplifiedLocationsScreen(
                             it,
                             modifier = Modifier.padding(14.dp),
                             color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
             }
 
-            if (!loading && error == null && floors.isEmpty()) {
+            if (!loading && !floorsLoading && error == null && floors.isEmpty()) {
                 item { EmptyStateCard("Nenhum andar cadastrado", "Adicione o primeiro andar deste bloco.", Icons.Rounded.Layers) }
             }
 
             items(floors, key = { it.id }) { floor ->
+                val removing = removingId == floor.id
                 Card(
                     onClick = {
+                        if (removing) return@Card
                         val condominium = building ?: return@Card
                         val block = selectedBlock ?: return@Card
                         onOpenFloor(condominium, block, floor)
@@ -163,12 +164,16 @@ fun SimplifiedLocationsScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(floor.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy, maxLines = 1)
-                            Text("Pontos e QR Codes", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 1)
+                            Text("Ver pontos de ronda", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 1)
                         }
-                        IconButton(onClick = { archiveTarget = floor }) {
-                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar andar", tint = RondaSafeColors.Muted)
+                        if (removing) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { removeTarget = floor }) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remover andar", tint = RondaSafeColors.Muted)
+                            }
+                            Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                         }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                     }
                 }
             }
@@ -176,7 +181,7 @@ fun SimplifiedLocationsScreen(
             item {
                 Button(
                     onClick = { addFloorOpen = true },
-                    enabled = selectedBlock != null && !loading,
+                    enabled = selectedBlock != null && !loading && !floorsLoading,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -195,29 +200,35 @@ fun SimplifiedLocationsScreen(
             onDismiss = { addFloorOpen = false },
             onConfirm = { name ->
                 val block = selectedBlock ?: error("Selecione um bloco.")
-                AdminRepository.createFloor(block.id, name)
+                val created = AdminRepository.createFloor(block.id, name)
+                floors = (floors + created).sortedBy { it.sortOrder }
                 addFloorOpen = false
                 error = null
-                refresh++
             },
         )
     }
 
-    archiveTarget?.let { floor ->
+    removeTarget?.let { floor ->
         AlertDialog(
-            onDismissRequest = { archiveTarget = null },
-            title = { Text("Arquivar ${floor.name}?") },
-            text = { Text("O andar sairá da lista ativa e ficará disponível em Arquivados.") },
-            dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text("Cancelar") } },
+            onDismissRequest = { removeTarget = null },
+            title = { Text("Remover ${floor.name}?") },
+            text = { Text("O andar sairá da operação. O histórico já registrado continuará preservado.") },
+            dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
-                    archiveTarget = null
+                    removeTarget = null
+                    removingId = floor.id
+                    val previous = floors
+                    floors = floors.filterNot { it.id == floor.id }
                     scope.launch {
                         runCatching { AdminRepository.archive("floors", floor.id) }
-                            .onSuccess { error = null; refresh++ }
-                            .onFailure { error = userFriendlyError(it, "Não foi possível arquivar este andar.") }
+                            .onFailure {
+                                floors = previous
+                                error = userFriendlyError(it, "Não foi possível remover este andar.")
+                            }
+                        removingId = null
                     }
-                }) { Text("Arquivar") }
+                }) { Text("Remover") }
             },
         )
     }
