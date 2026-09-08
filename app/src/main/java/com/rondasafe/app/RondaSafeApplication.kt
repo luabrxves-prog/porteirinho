@@ -17,9 +17,9 @@ class RondaSafeApplication : Application() {
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
         super.onCreate()
 
-        // Reagenda qualquer fila pendente ao abrir o aplicativo e dispara novamente
-        // assim que uma rede utilizável reaparecer. O WorkManager continua sendo a
-        // garantia persistente caso o processo esteja fechado.
+        // Uma única fila persistente cuida da sincronização. Se a rede voltar,
+        // apenas garantimos que o trabalho esteja agendado; não reiniciamos uma
+        // sincronização que já esteja em andamento.
         OfflineSyncWorker.schedule(this)
         registerConnectivitySync()
     }
@@ -28,7 +28,9 @@ class RondaSafeApplication : Application() {
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                OfflineSyncWorker.schedule(this@RondaSafeApplication, force = true)
+                runCatching {
+                    OfflineSyncWorker.schedule(this@RondaSafeApplication, force = false)
+                }
             }
         }
         networkCallback = callback

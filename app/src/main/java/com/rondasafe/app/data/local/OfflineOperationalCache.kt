@@ -40,12 +40,15 @@ object OfflineOperationalCache {
     private data class PinAttemptState(val attempts: Int, val lockedUntilEpochMs: Long)
 
     fun save(context: Context, cache: PortariaCacheResponse) {
-        OfflineCredentialVault.put(context, CACHE_KEY, json.encodeToString(cache))
+        val encoded = runCatching { json.encodeToString(cache) }.getOrNull() ?: return
+        safeVaultPut(context, CACHE_KEY, encoded)
     }
 
     fun load(context: Context): PortariaCacheResponse? {
-        val raw = OfflineCredentialVault.get(context, CACHE_KEY) ?: return null
-        return runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }.getOrNull()
+        val raw = safeVaultGet(context, CACHE_KEY) ?: return null
+        return runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }
+            .onFailure { safeVaultRemove(context, CACHE_KEY) }
+            .getOrNull()
     }
 
     fun hasCache(context: Context): Boolean = load(context) != null
@@ -96,7 +99,7 @@ object OfflineOperationalCache {
     }
 
     fun clearPinLockout(context: Context, guardId: String) {
-        OfflineCredentialVault.remove(context, PIN_LOCK_KEY_PREFIX + guardId)
+        safeVaultRemove(context, PIN_LOCK_KEY_PREFIX + guardId)
     }
 
     fun availablePatrols(context: Context, guardId: String): List<AvailablePatrolDto> {
@@ -110,8 +113,8 @@ object OfflineOperationalCache {
             val assignments = cache.assignments.filter { it.scheduleWindowId == window.id }
             if (assignments.isNotEmpty() && assignments.none { it.guardId == guardId }) return@mapNotNull null
 
-            val start = parseTime(window.startTime)
-            val end = parseTime(window.endTime)
+            val start = parseTimeOrNull(window.startTime) ?: return@mapNotNull null
+            val end = parseTimeOrNull(window.endTime) ?: return@mapNotNull null
             val localNow = now.toLocalTime()
             val active = when {
                 end > start -> window.dayOfWeek == isoDay && !localNow.isBefore(start) && !localNow.isAfter(end)
@@ -163,11 +166,11 @@ object OfflineOperationalCache {
     fun tokenHash(rawQr: String): String = sha256Hex(rawQr)
 
     fun clear(context: Context) {
-        OfflineCredentialVault.remove(context, CACHE_KEY)
+        safeVaultRemove(context, CACHE_KEY)
     }
 
     private fun loadPinAttemptState(context: Context, guardId: String): PinAttemptState {
-        val raw = OfflineCredentialVault.get(context, PIN_LOCK_KEY_PREFIX + guardId) ?: return PinAttemptState(0, 0L)
+        val raw = safeVaultGet(context, PIN_LOCK_KEY_PREFIX + guardId) ?: return PinAttemptState(0, 0L)
         val parts = raw.split('|')
         if (parts.size != 2) return PinAttemptState(0, 0L)
         return PinAttemptState(
@@ -177,14 +180,28 @@ object OfflineOperationalCache {
     }
 
     private fun savePinAttemptState(context: Context, guardId: String, state: PinAttemptState) {
-        OfflineCredentialVault.put(
+        safeVaultPut(
             context,
             PIN_LOCK_KEY_PREFIX + guardId,
             "${state.attempts}|${state.lockedUntilEpochMs}",
         )
     }
 
-    private fun parseTime(value: String): LocalTime = LocalTime.parse(value.take(8))
+    private fun safeVaultGet(context: Context, key: String): String? =
+        runCatching { OfflineCredentialVault.get(context, key) }
+            .onFailure { runCatching { OfflineCredentialVault.remove(context, key) } }
+            .getOrNull()
+
+    private fun safeVaultPut(context: Context, key: String, value: String) {
+        runCatching { OfflineCredentialVault.put(context, key, value) }
+    }
+
+    private fun safeVaultRemove(context: Context, key: String) {
+        runCatching { OfflineCredentialVault.remove(context, key) }
+    }
+
+    private fun parseTimeOrNull(value: String): LocalTime? =
+        runCatching { LocalTime.parse(value.take(8)) }.getOrNull()
 
     private fun pbkdf2Hex(pin: String, saltHex: String, iterations: Int): String {
         val salt = hexToBytes(saltHex)

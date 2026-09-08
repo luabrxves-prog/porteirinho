@@ -233,48 +233,71 @@ fun RondaSafeApp() {
                 screen = AppScreen.CHECKPOINTS
             },
         )
-        AppScreen.CHECKPOINTS -> SimplifiedCheckpointsScreen(
-            floor = requireNotNull(selection.floor),
-            onBack = { screen = AppScreen.LOCATIONS },
-            onSelect = {
-                selection = selection.copy(checkpoint = it)
-                screen = AppScreen.CHECKPOINT_DETAIL
-            },
-        )
-        AppScreen.CHECKPOINT_DETAIL -> CheckpointDetailWithPrintScreen(
-            checkpoint = requireNotNull(selection.checkpoint),
-            onBack = { screen = AppScreen.CHECKPOINTS },
-        )
+
+        AppScreen.CHECKPOINTS -> {
+            val floor = selection.floor
+            if (floor == null) {
+                LaunchedEffect(Unit) { screen = AppScreen.LOCATIONS }
+            } else {
+                SimplifiedCheckpointsScreen(
+                    floor = floor,
+                    onBack = { screen = AppScreen.LOCATIONS },
+                    onSelect = {
+                        selection = selection.copy(checkpoint = it)
+                        screen = AppScreen.CHECKPOINT_DETAIL
+                    },
+                )
+            }
+        }
+
+        AppScreen.CHECKPOINT_DETAIL -> {
+            val checkpoint = selection.checkpoint
+            if (checkpoint == null) {
+                LaunchedEffect(Unit) {
+                    screen = if (selection.floor != null) AppScreen.CHECKPOINTS else AppScreen.LOCATIONS
+                }
+            } else {
+                CheckpointDetailWithPrintScreen(
+                    checkpoint = checkpoint,
+                    onBack = { screen = AppScreen.CHECKPOINTS },
+                )
+            }
+        }
+
         AppScreen.GUARDS -> GuardsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+
         AppScreen.PATROLS -> PatrolTemplatesScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onCreate = {
-                selectedPatrolTemplate = null
-                screen = AppScreen.PATROL_CREATE
-            },
+            onCreate = { screen = AppScreen.PATROLS },
             onEdit = {
                 selectedPatrolTemplate = it
                 screen = AppScreen.PATROL_EDIT
             },
         )
-        AppScreen.PATROL_CREATE -> CreatePatrolTemplateScreen(
-            onBack = { screen = AppScreen.PATROLS },
-            onCreated = {
-                selectedPatrolTemplate = null
-                screen = AppScreen.PATROLS
-            },
-        )
-        AppScreen.PATROL_EDIT -> CreatePatrolTemplateScreen(
-            template = requireNotNull(selectedPatrolTemplate),
-            onBack = {
-                selectedPatrolTemplate = null
-                screen = AppScreen.PATROLS
-            },
-            onCreated = {
-                selectedPatrolTemplate = null
-                screen = AppScreen.PATROLS
-            },
-        )
+
+        AppScreen.PATROL_CREATE -> {
+            LaunchedEffect(Unit) { screen = AppScreen.PATROLS }
+        }
+
+        AppScreen.PATROL_EDIT -> {
+            val template = selectedPatrolTemplate
+            if (template == null) {
+                LaunchedEffect(Unit) { screen = AppScreen.PATROLS }
+            } else {
+                CreatePatrolTemplateScreen(
+                    template = template,
+                    onBack = {
+                        selectedPatrolTemplate = null
+                        screen = AppScreen.PATROLS
+                    },
+                    onCreated = {
+                        selectedPatrolTemplate = null
+                        screen = AppScreen.PATROLS
+                    },
+                )
+            }
+        }
+
         AppScreen.DEVICE_PROVISION -> DeviceProvisionScreen(
             onBack = { screen = AppScreen.ADMIN_SETTINGS },
             onProvisioned = { screen = AppScreen.ENTRY },
@@ -287,17 +310,27 @@ fun RondaSafeApp() {
             },
             onBack = { screen = AppScreen.ENTRY },
         )
-        AppScreen.GUARD_PIN -> GuardPinScreen(
-            guard = requireNotNull(selectedGuard),
-            onSuccess = { mustChange ->
-                screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME
-            },
-            onBack = {
-                selectedGuard = null
-                screen = AppScreen.ENTRY
-            },
-        )
+
+        AppScreen.GUARD_PIN -> {
+            val guard = selectedGuard
+            if (guard == null) {
+                LaunchedEffect(Unit) { screen = AppScreen.ENTRY }
+            } else {
+                GuardPinScreen(
+                    guard = guard,
+                    onSuccess = { mustChange ->
+                        screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME
+                    },
+                    onBack = {
+                        selectedGuard = null
+                        screen = AppScreen.ENTRY
+                    },
+                )
+            }
+        }
+
         AppScreen.GUARD_CHANGE_PIN -> ChangeGuardPinScreen(onChanged = { screen = AppScreen.SHIFT_HOME })
+
         AppScreen.SHIFT_HOME -> ShiftHomeScreen(
             onShiftStarted = {
                 shift = it
@@ -305,26 +338,51 @@ fun RondaSafeApp() {
             },
             onBack = { returnToGuardLanding() },
         )
-        AppScreen.AVAILABLE_PATROLS -> AvailablePatrolsScreen(
-            shift = requireNotNull(shift),
-            onStart = { patrol, patrolRun ->
-                activePatrol = patrol
-                run = patrolRun
-                screen = AppScreen.PATROL_SCANNER
-            },
-            onEndShift = { returnToGuardLanding() },
-        )
-        AppScreen.PATROL_SCANNER -> PatrolScannerScreen(
-            run = requireNotNull(run),
-            patrolName = requireNotNull(activePatrol).patrolName,
-            onFinished = {
-                finishResult = it
-                screen = AppScreen.PATROL_FINISHED
-            },
-        )
-        AppScreen.PATROL_FINISHED -> PatrolFinishedScreen(
-            result = requireNotNull(finishResult),
-            onDone = { returnToGuardLanding() },
-        )
+
+        AppScreen.AVAILABLE_PATROLS -> {
+            val currentShift = shift
+            if (currentShift == null) {
+                LaunchedEffect(Unit) { returnToGuardLanding() }
+            } else {
+                AvailablePatrolsScreen(
+                    shift = currentShift,
+                    onStart = { patrol, patrolRun ->
+                        activePatrol = patrol
+                        run = patrolRun
+                        screen = AppScreen.PATROL_SCANNER
+                    },
+                    onEndShift = { returnToGuardLanding() },
+                )
+            }
+        }
+
+        AppScreen.PATROL_SCANNER -> {
+            val currentRun = run
+            val patrol = activePatrol
+            if (currentRun == null || patrol == null) {
+                LaunchedEffect(Unit) { returnToGuardLanding() }
+            } else {
+                PatrolScannerScreen(
+                    run = currentRun,
+                    patrolName = patrol.patrolName,
+                    onFinished = {
+                        finishResult = it
+                        screen = AppScreen.PATROL_FINISHED
+                    },
+                )
+            }
+        }
+
+        AppScreen.PATROL_FINISHED -> {
+            val result = finishResult
+            if (result == null) {
+                LaunchedEffect(Unit) { returnToGuardLanding() }
+            } else {
+                PatrolFinishedScreen(
+                    result = result,
+                    onDone = { returnToGuardLanding() },
+                )
+            }
+        }
     }
 }
