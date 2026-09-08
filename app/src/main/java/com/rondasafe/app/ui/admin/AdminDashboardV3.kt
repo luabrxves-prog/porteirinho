@@ -5,35 +5,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.rondasafe.app.data.model.PatrolHistoryItemDto
-import com.rondasafe.app.data.repository.AdminRepository
-import com.rondasafe.app.data.repository.AuthRepository
-import com.rondasafe.app.data.repository.PatrolHistoryRepository
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rondasafe.app.presentation.admin.viewmodel.AdminDashboardViewModel
 import com.rondasafe.app.ui.components.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
-
-private val dashboardZone = ZoneId.of("America/Sao_Paulo")
-
-private data class DashboardMetrics(
-    val condominium: String = "Condomínio",
-    val today: List<PatrolHistoryItemDto> = emptyList(),
-    val openAlerts: Int = 0,
-) {
-    val total: Int get() = today.size
-    val completed: Int get() = today.count { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
-    val attention: Int get() = today.count {
-        it.displayStatus in setOf("MISSED", "INCOMPLETE", "LATE") || it.isLate || it.suspicious || it.missingPoints > 0
-    }
-}
 
 @Composable
 fun AdminDashboardScreenV3(
@@ -45,33 +26,9 @@ fun AdminDashboardScreenV3(
     onOpenAlerts: () -> Unit,
     onOpenSettings: () -> Unit,
     onLogout: () -> Unit,
+    viewModel: AdminDashboardViewModel = viewModel(),
 ) {
-    val scope = rememberCoroutineScope()
-    var metrics by remember { mutableStateOf(DashboardMetrics()) }
-    var loading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        loading = true
-        runCatching {
-            coroutineScope {
-                val condominiumDeferred = async { AdminRepository.condominium() }
-                val alertsDeferred = async { AdminRepository.listAlerts().size }
-                val todayDeferred = async {
-                    val today = LocalDate.now(dashboardZone)
-                    PatrolHistoryRepository.listRange(
-                        from = today.atStartOfDay(dashboardZone).toInstant(),
-                        to = today.plusDays(1).atStartOfDay(dashboardZone).toInstant().minusMillis(1),
-                    )
-                }
-                DashboardMetrics(
-                    condominium = condominiumDeferred.await().name,
-                    today = todayDeferred.await(),
-                    openAlerts = alertsDeferred.await(),
-                )
-            }
-        }.onSuccess { metrics = it }
-        loading = false
-    }
+    val metrics by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
@@ -89,7 +46,10 @@ fun AdminDashboardScreenV3(
                 )
             }
 
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            if (metrics.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            metrics.error?.let { message ->
+                item { Text(message, color = MaterialTheme.colorScheme.error) }
+            }
 
             item {
                 val needsAttention = metrics.attention > 0 || metrics.openAlerts > 0
@@ -144,12 +104,7 @@ fun AdminDashboardScreenV3(
             item {
                 Spacer(Modifier.height(4.dp))
                 OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            AuthRepository.signOut()
-                            onLogout()
-                        }
-                    },
+                    onClick = { viewModel.signOut(onLogout) },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = MaterialTheme.shapes.medium,
                 ) {
