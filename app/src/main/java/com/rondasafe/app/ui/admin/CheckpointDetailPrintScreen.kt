@@ -52,7 +52,10 @@ fun CheckpointDetailWithPrintScreen(checkpoint: CheckpointDto, onBack: () -> Uni
             modifier = Modifier.padding(padding).padding(RondaSafeUi.ScreenPadding).fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            SectionHeading(checkpoint.name, checkpoint.description?.takeIf { it.isNotBlank() } ?: "QR Code do ponto de controle")
+            SectionHeading(
+                if (checkpoint.systemFixed) "Ponto obrigatório" else checkpoint.name,
+                checkpoint.description?.takeIf { it.isNotBlank() } ?: "QR Code do ponto de controle",
+            )
             Spacer(Modifier.height(16.dp))
             if (loading) CircularProgressIndicator()
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -120,8 +123,12 @@ fun CheckpointDetailWithPrintScreen(checkpoint: CheckpointDto, onBack: () -> Uni
     if (confirmReplace) {
         AlertDialog(
             onDismissRequest = { confirmReplace = false },
-            title = { Text("Substituir QR Code?") },
-            text = { Text("O QR atual será revogado. O histórico de leituras anteriores continuará preservado.") },
+            title = { Text("Substituir este QR Code?") },
+            text = {
+                Text(
+                    "Ao confirmar, o QR Code atual será revogado imediatamente e deixará de funcionar nas próximas rondas. Você precisará imprimir e instalar o novo QR Code neste local. O histórico das leituras já realizadas será preservado.",
+                )
+            },
             dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
@@ -133,7 +140,7 @@ fun CheckpointDetailWithPrintScreen(checkpoint: CheckpointDto, onBack: () -> Uni
                             .onFailure { error = it.message }
                         loading = false
                     }
-                }) { Text("Substituir") }
+                }) { Text("Entendi, substituir") }
             },
         )
     }
