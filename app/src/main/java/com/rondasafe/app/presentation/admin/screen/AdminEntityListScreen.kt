@@ -16,9 +16,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.core.result.UiState
-import com.rondasafe.app.ui.admin.RondaSafeColors
-import com.rondasafe.app.ui.admin.RondaSafeUi
 import com.rondasafe.app.ui.components.PremiumTopBar
+import com.rondasafe.app.ui.components.RondaSafeColors
+import com.rondasafe.app.ui.components.RondaSafeUi
 
 @Composable
 fun <T> AdminEntityListScreen(
