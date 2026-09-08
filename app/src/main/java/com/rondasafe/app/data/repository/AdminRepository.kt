@@ -67,19 +67,8 @@ object AdminRepository {
 
     suspend fun defaultBlocks(): List<BlockDto> {
         val building = condominium()
-        var existing = listBlocks(building.id, includeArchived = true)
-        suspend fun ensure(name: String) {
-            val block = existing.firstOrNull { it.name.equals(name, true) }
-            when {
-                block == null -> createBlock(building.id, name)
-                !block.active -> restore("blocks", block.id)
-            }
-        }
-        ensure("Bloco A")
-        ensure("Bloco B")
-        existing = listBlocks(building.id)
-        return existing.filter { it.name.equals("Bloco A", true) || it.name.equals("Bloco B", true) }
-            .sortedBy { if (it.name.equals("Bloco A", true)) 1 else 2 }
+        return listBlocks(building.id).filter { it.systemFixed || it.name.equals("Condomínio", true) }
+            .sortedBy { it.sortOrder }
     }
 
     suspend fun createBuilding(name: String): BuildingDto = client.from("buildings")
@@ -167,7 +156,6 @@ object AdminRepository {
         )
     }
 
-    /** Compatibility helper. Never returns an unbounded alert collection. */
     suspend fun listAlerts(includeResolved: Boolean = false): List<AlertDto> = alertsPage(
         from = Instant.now().minusSeconds(90L * 24L * 60L * 60L),
         to = Instant.now(),
