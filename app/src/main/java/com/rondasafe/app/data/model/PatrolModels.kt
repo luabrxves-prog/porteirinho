@@ -24,6 +24,12 @@ data class PatrolScheduleWindowDto(
 )
 
 @Serializable
+data class UpdatePatrolScheduleWindowTimeDto(
+    @SerialName("start_time") val startTime: String,
+    @SerialName("end_time") val endTime: String,
+)
+
+@Serializable
 data class PatrolTemplateCheckpointDto(
     val id: String,
     @SerialName("patrol_template_id") val patrolTemplateId: String,

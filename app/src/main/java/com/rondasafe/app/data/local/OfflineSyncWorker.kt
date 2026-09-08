@@ -17,10 +17,6 @@ import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -47,16 +43,11 @@ class OfflineSyncWorker(
         private const val UNIQUE_WORK = "rondasafe-offline-sync"
         private const val MAX_PARENT_RETRIES = 6
         private val json = Json { ignoreUnknownKeys = true }
-        private val foregroundSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         suspend fun syncPending(context: Context): Result {
             val appContext = context.applicationContext
             val dao = OfflineDatabase.get(appContext).offlineDao()
 
-            // Versões antigas podiam marcar como permanente apenas porque o mesmo
-            // aparelho foi reprovisionado e ganhou outro device_id. O backend atual
-            // consegue recuperar esses casos com segurança (mesmo condomínio + porteiro),
-            // então reabrimos somente esse tipo específico de falha.
             dao.recoverLegacyCompatibilityFailures()
 
             PortariaRepository.restoreDeviceCredential(appContext)
@@ -163,11 +154,6 @@ class OfflineSyncWorker(
 
         fun schedule(context: Context, force: Boolean = false) {
             val appContext = context.applicationContext
-
-            foregroundSyncScope.launch {
-                runCatching { syncPending(appContext) }
-            }
-
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
@@ -184,7 +170,7 @@ class OfflineSyncWorker(
 
             WorkManager.getInstance(appContext).enqueueUniqueWork(
                 UNIQUE_WORK,
-                ExistingWorkPolicy.REPLACE,
+                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                 request,
             )
         }
