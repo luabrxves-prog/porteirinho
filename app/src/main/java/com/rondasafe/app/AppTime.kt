@@ -1,35 +1,19 @@
 package com.rondasafe.app
 
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
+/**
+ * Compatibility facade while screens migrate to core.time.AppTime.
+ * New code should import com.rondasafe.app.core.time.AppTime directly.
+ */
+@Deprecated("Use com.rondasafe.app.core.time.AppTime")
 object AppTime {
-    val zone: ZoneId = ZoneId.of("America/Sao_Paulo")
+    val zone: ZoneId get() = com.rondasafe.app.core.time.AppTime.zone
 
-    private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm")
-    private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-    private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-
-    fun nowDate(): LocalDate = LocalDate.now(zone)
-
-    fun dateTime(value: String): String = runCatching {
-        Instant.parse(value).atZone(zone).format(dateTimeFormatter)
-    }.getOrElse { value }
-
-    fun time(value: String): String = runCatching {
-        Instant.parse(value).atZone(zone).format(timeFormatter)
-    }.getOrElse { value }
-
-    fun date(value: LocalDate): String = value.format(dateFormatter)
-
-    fun scheduledLabel(value: String): String = runCatching {
-        val dateTime = Instant.parse(value).atZone(zone)
-        if (dateTime.toLocalDate() == nowDate()) {
-            "Prevista para ${dateTime.format(timeFormatter)}"
-        } else {
-            "Prevista em ${dateTime.format(dateTimeFormatter)}"
-        }
-    }.getOrElse { "Prevista em $value" }
+    fun nowDate(): LocalDate = com.rondasafe.app.core.time.AppTime.nowDate()
+    fun dateTime(value: String): String = com.rondasafe.app.core.time.AppTime.dateTime(value)
+    fun time(value: String): String = com.rondasafe.app.core.time.AppTime.time(value)
+    fun date(value: LocalDate): String = com.rondasafe.app.core.time.AppTime.date(value)
+    fun scheduledLabel(value: String): String = com.rondasafe.app.core.time.AppTime.scheduledLabel(value)
 }
