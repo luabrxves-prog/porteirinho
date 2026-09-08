@@ -71,7 +71,7 @@ fun PremiumGuardLandingScreen(
             error = null
             runCatching { PortariaRepository.listGuards() }
                 .onSuccess { guards = it }
-                .onFailure { error = it.message ?: "Nao foi possivel carregar os porteiros." }
+                .onFailure { error = it.message ?: "Não foi possível carregar os porteiros." }
             loading = false
         }
     }
@@ -137,7 +137,7 @@ fun PremiumGuardLandingScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                "Quem esta iniciando o turno?",
+                                "Quem está iniciando o turno?",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
@@ -167,7 +167,7 @@ fun PremiumGuardLandingScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                "Aparelho ainda nao configurado",
+                                "Aparelho ainda não configurado",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = RondaSafeColors.Navy,
