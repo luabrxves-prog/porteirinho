@@ -23,7 +23,6 @@ import com.rondasafe.app.data.model.FloorDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -46,13 +45,18 @@ fun SimplifiedCheckpointsScreen(
         loading = true
         error = null
         runCatching {
-            val checkpoints = AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
-            val readiness = coroutineScope {
-                checkpoints.map { checkpoint ->
-                    async { checkpoint.id to (runCatching { AdminRepository.getActiveQr(checkpoint.id) }.getOrNull() != null) }
-                }.awaitAll().toMap()
+            coroutineScope {
+                val checkpointsDeferred = async {
+                    AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
+                }
+                val optionsDeferred = async { AdminRepository.checkpointOptions() }
+                val checkpoints = checkpointsDeferred.await()
+                val readiness = optionsDeferred.await()
+                    .asSequence()
+                    .filter { it.floorId == floor.id }
+                    .associate { it.checkpointId to it.qrReady }
+                checkpoints to readiness
             }
-            checkpoints to readiness
         }.onSuccess { (checkpoints, readiness) ->
             data = checkpoints
             qrReady = readiness
@@ -105,10 +109,7 @@ fun SimplifiedCheckpointsScreen(
                     border = BorderStroke(1.dp, RondaSafeColors.Border),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(15.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(modifier = Modifier.size(48.dp), shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
                             Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.QrCode2, null, tint = RondaSafeColors.Navy) }
                         }
@@ -119,10 +120,7 @@ fun SimplifiedCheckpointsScreen(
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
                             }
                             Spacer(Modifier.height(5.dp))
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = if (isReady) RondaSafeColors.GreenSoft else Color(0xFFFFF4DF),
-                            ) {
+                            Surface(shape = RoundedCornerShape(50), color = if (isReady) RondaSafeColors.GreenSoft else Color(0xFFFFF4DF)) {
                                 Text(
                                     if (isReady) "QR pronto" else "QR pendente",
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -190,20 +188,8 @@ private fun SimpleCheckpointDialog(
         title = { Text("Novo ponto") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nome") },
-                    placeholder = { Text("Ex.: Hall do elevador") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Observação (opcional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, placeholder = { Text("Ex.: Hall do elevador") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Observação (opcional)") }, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
