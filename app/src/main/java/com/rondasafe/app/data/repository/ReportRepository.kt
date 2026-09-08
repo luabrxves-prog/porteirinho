@@ -7,17 +7,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-private data class ReportExportRequest(
-    val days: Int,
-)
+private data class ReportExportRequest(val days: Int)
 
 @Serializable
 data class ReportTotalsDto(
-    val runs: Int = 0,
-    val scans: Int = 0,
+    val patrols: Int = 0,
+    val completed: Int = 0,
+    val attention: Int = 0,
     val alerts: Int = 0,
     val occurrences: Int = 0,
-    val audit: Int = 0,
 )
 
 @Serializable
