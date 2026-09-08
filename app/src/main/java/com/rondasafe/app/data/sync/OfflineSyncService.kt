@@ -88,5 +88,6 @@ class OfflineSyncService(
         dao.deleteExpiredPermanentFailures(cutoff)
         dao.deleteOldInactiveRuns(cutoff)
         dao.deleteOldInactiveShifts(cutoff)
+        dao.deleteOrphanVisits()
     }
 }
