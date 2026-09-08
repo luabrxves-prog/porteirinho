@@ -20,6 +20,8 @@ import com.rondasafe.app.data.model.PatrolTemplateDto
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.data.repository.PatrolRepository
 import com.rondasafe.app.ui.components.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 private val assignmentDayNames = mapOf(1 to "Segunda", 2 to "Terça", 3 to "Quarta", 4 to "Quinta", 5 to "Sexta", 6 to "Sábado", 7 to "Domingo")
@@ -36,13 +38,10 @@ private fun assignmentScheduleSummary(windows: List<PatrolScheduleWindowDto>): S
     val schedules = sortedWindows
         .map { "${it.startTime.take(5)} às ${it.endTime.take(5)}" }
         .distinct()
-    val daySummary = when {
-        days.size == 7 -> "Todos os dias"
-        else -> days.joinToString(", ")
-    }
+    val daySummary = if (days.size == 7) "Todos os dias" else days.joinToString(", ")
     val timeSummary = when (schedules.size) {
         1 -> schedules.first()
-        else -> "${windows.size} horários programados"
+        else -> "${windows.size} horários"
     }
     return "$daySummary • $timeSummary"
 }
@@ -54,6 +53,7 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
     var rows by remember { mutableStateOf<List<AssignmentPatrolRow>>(emptyList()) }
     var selectedRow by remember { mutableStateOf<AssignmentPatrolRow?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
@@ -61,44 +61,65 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
             loading = true
             error = null
             runCatching {
-                val activeGuards = GuardRepository.list().filter { it.active }
-                val templates = PatrolRepository.listTemplates().filter { it.active }
-                val patrolRows = mutableListOf<AssignmentPatrolRow>()
-                for (template in templates) {
-                    val windows = PatrolRepository.listWindows(template.id)
-                    if (windows.isNotEmpty()) {
-                        val assigned = mutableSetOf<String>()
-                        for (window in windows) {
-                            assigned += PatrolRepository.listAssignments(window.id, includeArchived = false).map { it.guardId }
-                        }
-                        patrolRows += AssignmentPatrolRow(template, windows, assigned)
-                    }
+                coroutineScope {
+                    val guardsDeferred = async { GuardRepository.list().filter { it.active } }
+                    val templatesDeferred = async { PatrolRepository.listTemplates().filter { it.active } }
+                    val windowsDeferred = async { PatrolRepository.listActiveWindows() }
+                    val assignmentsDeferred = async { PatrolRepository.listActiveAssignments() }
+
+                    val loadedGuards = guardsDeferred.await()
+                    val templates = templatesDeferred.await()
+                    val windows = windowsDeferred.await()
+                    val assignments = assignmentsDeferred.await()
+
+                    val windowsByTemplate = windows.groupBy { it.patrolTemplateId }
+                    val assignmentsByWindow = assignments.groupBy { it.scheduleWindowId }
+
+                    val loadedRows = templates.mapNotNull { template ->
+                        val templateWindows = windowsByTemplate[template.id].orEmpty().sortedBy { it.dayOfWeek }
+                        if (templateWindows.isEmpty()) return@mapNotNull null
+                        val assigned = templateWindows
+                            .flatMap { window -> assignmentsByWindow[window.id].orEmpty().map { it.guardId } }
+                            .toSet()
+                        AssignmentPatrolRow(template, templateWindows, assigned)
+                    }.sortedBy { it.template.name.lowercase() }
+
+                    loadedGuards to loadedRows
                 }
-                activeGuards to patrolRows.sortedBy { it.template.name.lowercase() }
-            }.onSuccess { (loadedGuards, loadedRows) -> guards = loadedGuards; rows = loadedRows }
-                .onFailure { error = it.message }
+            }.onSuccess { (loadedGuards, loadedRows) ->
+                guards = loadedGuards
+                rows = loadedRows
+            }.onFailure { error = userFriendlyError(it, "Não foi possível carregar os responsáveis pelas rondas.") }
             loading = false
         }
     }
+
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { PremiumTopBar("Responsáveis por ronda", onBack) },
+        topBar = { PremiumTopBar("Responsáveis pelas rondas", onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
             contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { SectionHeading("Responsáveis", "Cada ronda aparece uma vez. A seleção será aplicada a todos os dias programados.") }
+            item {
+                SectionHeading(
+                    "Quem pode fazer cada ronda",
+                    "Opcional. Sem seleção, qualquer porteiro ativo pode realizar.",
+                )
+            }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            if (!loading && rows.isEmpty()) item { EmptyStateCard("Nenhuma programação ativa", "Crie uma ronda para definir responsáveis.", Icons.Rounded.AssignmentInd) }
+            if (!loading && rows.isEmpty()) {
+                item { EmptyStateCard("Nenhuma ronda disponível", "As rondas fixas aparecerão aqui quando estiverem ativas.", Icons.Rounded.AssignmentInd) }
+            }
             items(rows, key = { it.template.id }) { row ->
                 val names = guards.filter { it.id in row.assignedGuardIds }.map { it.name }
                 Card(
-                    onClick = { selectedRow = row },
+                    onClick = { if (!saving) selectedRow = row },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -115,7 +136,7 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
                             Text(assignmentScheduleSummary(row.windows), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                if (names.isEmpty()) "Sem responsável específico — qualquer porteiro pode realizar" else names.joinToString(", "),
+                                if (names.isEmpty()) "Qualquer porteiro" else names.joinToString(", "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (names.isEmpty()) RondaSafeColors.Green else RondaSafeColors.Text,
                                 fontWeight = FontWeight.SemiBold,
@@ -133,12 +154,21 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
         AssignmentDialog(
             row = row,
             guards = guards,
-            onDismiss = { selectedRow = null },
+            saving = saving,
+            onDismiss = { if (!saving) selectedRow = null },
             onSave = { selectedIds ->
                 scope.launch {
+                    saving = true
+                    error = null
                     runCatching { PatrolRepository.setAssignmentsForWindows(row.windows.map { it.id }, selectedIds) }
-                        .onSuccess { selectedRow = null; reload() }
-                        .onFailure { error = it.message }
+                        .onSuccess {
+                            rows = rows.map {
+                                if (it.template.id == row.template.id) it.copy(assignedGuardIds = selectedIds) else it
+                            }
+                            selectedRow = null
+                        }
+                        .onFailure { error = userFriendlyError(it, "Não foi possível salvar os responsáveis.") }
+                    saving = false
                 }
             },
         )
@@ -149,13 +179,14 @@ fun PatrolAssignmentsScreen(onBack: () -> Unit) {
 private fun AssignmentDialog(
     row: AssignmentPatrolRow,
     guards: List<GuardDto>,
+    saving: Boolean,
     onDismiss: () -> Unit,
     onSave: (Set<String>) -> Unit,
 ) {
     var selected by remember(row.template.id, row.assignedGuardIds) { mutableStateOf(row.assignedGuardIds) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Definir responsáveis") },
+        title = { Text("Responsáveis") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
@@ -163,13 +194,14 @@ private fun AssignmentDialog(
                     Text(assignmentScheduleSummary(row.windows), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                     Spacer(Modifier.height(8.dp))
                     Surface(shape = RoundedCornerShape(14.dp), color = RondaSafeColors.GreenSoft) {
-                        Text("Nenhum marcado = qualquer porteiro ativo pode realizar", modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Green)
+                        Text("Se ninguém for marcado, qualquer porteiro ativo poderá realizar.", modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Green)
                     }
                 }
                 items(guards, key = { it.id }) { guard ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
                             checked = guard.id in selected,
+                            enabled = !saving,
                             onCheckedChange = { checked -> selected = if (checked) selected + guard.id else selected - guard.id },
                         )
                         Text(guard.name)
@@ -177,7 +209,11 @@ private fun AssignmentDialog(
                 }
             }
         },
-        confirmButton = { Button(onClick = { onSave(selected) }) { Text("Salvar") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+        confirmButton = {
+            Button(onClick = { onSave(selected) }, enabled = !saving) {
+                Text(if (saving) "Salvando..." else "Salvar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancelar") } },
     )
 }
