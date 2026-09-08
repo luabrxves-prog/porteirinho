@@ -10,6 +10,7 @@ data class PatrolTemplateDto(
     val name: String,
     val description: String? = null,
     val active: Boolean,
+    @SerialName("system_fixed") val systemFixed: Boolean = false,
 )
 
 @Serializable
