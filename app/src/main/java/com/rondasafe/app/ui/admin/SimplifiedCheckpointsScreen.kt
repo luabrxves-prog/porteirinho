@@ -49,12 +49,9 @@ fun SimplifiedCheckpointsScreen(
                 val checkpointsDeferred = async {
                     AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
                 }
-                val optionsDeferred = async { AdminRepository.checkpointOptions() }
+                val optionsDeferred = async { AdminRepository.checkpointOptions(floorId = floor.id) }
                 val checkpoints = checkpointsDeferred.await()
-                val readiness = optionsDeferred.await()
-                    .asSequence()
-                    .filter { it.floorId == floor.id }
-                    .associate { it.checkpointId to it.qrReady }
+                val readiness = optionsDeferred.await().associate { it.checkpointId to it.qrReady }
                 checkpoints to readiness
             }
         }.onSuccess { (checkpoints, readiness) ->
