@@ -13,11 +13,6 @@ class MainActivity : ComponentActivity() {
 
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
 
-        // Esta versão de homologação precisa iniciar limpa mesmo quando instalada
-        // por cima de builds anteriores. O reset roda uma única vez por instalação
-        // desta versão e preserva somente o usuário admin que está no Supabase.
-        TestCleanReset.runOnce(applicationContext)
-
         setContent {
             RondaSafeTheme {
                 RondaSafeApp()
