@@ -22,19 +22,19 @@ fun OfflineSyncStatusBanner(modifier: Modifier = Modifier) {
     val flow = remember(context) { OfflineSyncStatusRepository.observe(context) }
     val status by flow.collectAsState(initial = OfflineSyncStatus())
 
-    // Sincronizacao normal e silenciosa. Pendencias momentaneas fazem parte do
-    // mecanismo offline-first e nao devem parecer erro para o porteiro.
+    // Sincronização normal e silenciosa. Pendências momentâneas fazem parte do
+    // mecanismo offline-first e não devem parecer erro para o porteiro.
     if (status.failedPermanent <= 0) return
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                "Falha de sincronizacao",
+                "Falha de sincronização",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.error,
             )
             Text(
-                status.latestError ?: "Ha registros deste aparelho que precisam de atencao do administrador.",
+                status.latestError ?: "Há registros deste aparelho que precisam de atenção do administrador.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
