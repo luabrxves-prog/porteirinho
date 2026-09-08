@@ -27,7 +27,8 @@ fun SimplifiedLocationsScreen(
     onOpenFloor: (BuildingDto, BlockDto, FloorDto) -> Unit,
 ) {
     var building by remember { mutableStateOf<BuildingDto?>(null) }
-    var block by remember { mutableStateOf<BlockDto?>(null) }
+    var blocks by remember { mutableStateOf<List<BlockDto>>(emptyList()) }
+    var selectedBlock by remember { mutableStateOf<BlockDto?>(null) }
     var floors by remember { mutableStateOf<List<FloorDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -37,20 +38,29 @@ fun SimplifiedLocationsScreen(
         error = null
         runCatching {
             val condominium = AdminRepository.condominium()
-            val fixedBlock = AdminRepository.defaultBlocks().firstOrNull()
-                ?: error("Estrutura fixa do condomínio não encontrada.")
-            val fixedFloors = AdminRepository.listFloors(fixedBlock.id)
-                .filter { it.active && it.systemFixed }
-                .sortedBy { it.sortOrder }
-            Triple(condominium, fixedBlock, fixedFloors)
-        }.onSuccess { (condominium, fixedBlock, fixedFloors) ->
+            val fixedBlocks = AdminRepository.defaultBlocks().filter { it.active && it.systemFixed }.sortedBy { it.sortOrder }
+            condominium to fixedBlocks
+        }.onSuccess { (condominium, fixedBlocks) ->
             building = condominium
-            block = fixedBlock
-            floors = fixedFloors
+            blocks = fixedBlocks
+            selectedBlock = fixedBlocks.firstOrNull()
         }.onFailure {
-            error = userFriendlyError(it, "Não foi possível carregar os locais fixos do condomínio.")
+            error = userFriendlyError(it, "Não foi possível carregar os blocos do condomínio.")
         }
         loading = false
+    }
+
+    LaunchedEffect(selectedBlock?.id) {
+        val block = selectedBlock ?: run {
+            floors = emptyList()
+            return@LaunchedEffect
+        }
+        runCatching {
+            AdminRepository.listFloors(block.id)
+                .filter { it.active && it.systemFixed }
+                .sortedBy { it.sortOrder }
+        }.onSuccess { floors = it }
+            .onFailure { error = userFriendlyError(it, "Não foi possível carregar os locais fixos deste bloco.") }
     }
 
     Scaffold(
@@ -65,7 +75,7 @@ fun SimplifiedLocationsScreen(
             item {
                 SectionHeading(
                     "Locais fixos",
-                    "Térreo, Play, Garagem e os 11 andares já fazem parte da operação. Abra um local para consultar o QR Code ou adicionar pontos extras.",
+                    "Blocos A e B possuem Térreo, Play, Garagem, 1º ao 11º andar e Cobertura. Abra um local para consultar o QR Code ou adicionar pontos extras.",
                 )
             }
 
@@ -76,12 +86,27 @@ fun SimplifiedLocationsScreen(
                     color = RondaSafeColors.BlueSoft,
                 ) {
                     Text(
-                        "Esses locais são obrigatórios e não podem ser removidos.",
+                        "Cada bloco possui 15 locais obrigatórios. Esses locais não podem ser removidos.",
                         modifier = Modifier.padding(14.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = RondaSafeColors.Navy,
                         fontWeight = FontWeight.SemiBold,
                     )
+                }
+            }
+
+            if (blocks.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        blocks.forEach { block ->
+                            FilterChip(
+                                selected = selectedBlock?.id == block.id,
+                                onClick = { selectedBlock = block; error = null },
+                                label = { Text(block.name, maxLines = 1, fontWeight = FontWeight.SemiBold) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -99,15 +124,15 @@ fun SimplifiedLocationsScreen(
             }
 
             if (!loading && error == null && floors.isEmpty()) {
-                item { EmptyStateCard("Estrutura não encontrada", "Os locais fixos precisam ser restaurados.", Icons.Rounded.Layers) }
+                item { EmptyStateCard("Estrutura não encontrada", "Os locais fixos deste bloco precisam ser restaurados.", Icons.Rounded.Layers) }
             }
 
             items(floors, key = { it.id }) { floor ->
                 Card(
                     onClick = {
                         val condominium = building ?: return@Card
-                        val fixedBlock = block ?: return@Card
-                        onOpenFloor(condominium, fixedBlock, floor)
+                        val block = selectedBlock ?: return@Card
+                        onOpenFloor(condominium, block, floor)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
