@@ -3,10 +3,8 @@ package com.rondasafe.app.ui.admin
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.PhoneAndroid
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -23,7 +21,7 @@ fun AdminSettingsScreen(
 ) {
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { PremiumTopBar("Configurações", onBack) },
+        topBar = { PremiumTopBar("Ajustes", onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
@@ -32,40 +30,24 @@ fun AdminSettingsScreen(
         ) {
             item {
                 SectionHeading(
-                    "Configurações e manutenção",
-                    "Itens usados na implantação ou quando você precisar alterar a operação.",
+                    "Ajustes da operação",
+                    "Somente configurações que podem ser necessárias no dia a dia.",
                 )
             }
             item {
                 PremiumMenuRow(
-                    "Responsáveis por ronda",
-                    "Opcional — defina quais porteiros podem realizar cada ronda",
+                    "Responsáveis pelas rondas",
+                    "Opcional — escolha quem pode realizar cada ronda",
                     Icons.Rounded.AssignmentInd,
                     onOpenAssignments,
                 )
             }
             item {
                 PremiumMenuRow(
-                    "Configurar aparelho",
-                    "Vincule este celular à portaria",
+                    "Aparelho da portaria",
+                    "Use apenas para configurar ou trocar o celular da portaria",
                     Icons.Rounded.PhoneAndroid,
                     onOpenDevice,
-                )
-            }
-            item {
-                PremiumMenuRow(
-                    "Arquivados",
-                    "Consulte e restaure cadastros antigos",
-                    Icons.Rounded.Archive,
-                    onOpenArchived,
-                )
-            }
-            item {
-                PremiumMenuRow(
-                    "Diagnóstico de sincronização",
-                    "Abra somente se houver problema de envio dos registros",
-                    Icons.Rounded.Sync,
-                    onOpenSync,
                 )
             }
             item { Spacer(Modifier.height(18.dp)) }
