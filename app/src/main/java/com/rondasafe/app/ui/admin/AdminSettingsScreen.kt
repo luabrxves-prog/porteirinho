@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Scaffold
@@ -33,15 +32,7 @@ fun AdminSettingsScreen(
             item {
                 SectionHeading(
                     "Configurações e manutenção",
-                    "Itens usados na implantação ou quando você precisar alterar a operação.",
-                )
-            }
-            item {
-                PremiumMenuRow(
-                    "Responsáveis por ronda",
-                    "Opcional — defina quais porteiros podem realizar cada ronda",
-                    Icons.Rounded.AssignmentInd,
-                    onOpenAssignments,
+                    "O responsável pelas rondas é definido automaticamente pelo porteiro que estiver com o plantão aberto no aparelho.",
                 )
             }
             item {
@@ -55,7 +46,7 @@ fun AdminSettingsScreen(
             item {
                 PremiumMenuRow(
                     "Arquivados",
-                    "Consulte e restaure cadastros antigos",
+                    "Consulte cadastros extras arquivados",
                     Icons.Rounded.Archive,
                     onOpenArchived,
                 )
