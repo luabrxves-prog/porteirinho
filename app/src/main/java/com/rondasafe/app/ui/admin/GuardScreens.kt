@@ -5,12 +5,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.*
@@ -27,12 +28,13 @@ import com.rondasafe.app.data.model.GuardDto
 import com.rondasafe.app.data.repository.GuardRepository
 import com.rondasafe.app.ui.components.*
 import io.ktor.http.ContentType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun GuardsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var refresh by remember { mutableIntStateOf(0) }
     var guards by remember { mutableStateOf<List<GuardDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -41,16 +43,21 @@ fun GuardsScreen(onBack: () -> Unit) {
     var tempPin by remember { mutableStateOf<String?>(null) }
     var tempPinGuardName by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf<GuardDto?>(null) }
-    var confirmArchive by remember { mutableStateOf<GuardDto?>(null) }
+    var confirmRemove by remember { mutableStateOf<GuardDto?>(null) }
+    var removingId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(refresh) {
-        loading = true
-        error = null
-        runCatching { GuardRepository.list(includeArchived = false).filter { it.active } }
-            .onSuccess { guards = it }
-            .onFailure { error = it.message }
-        loading = false
+    fun load() {
+        scope.launch {
+            loading = true
+            error = null
+            runCatching { GuardRepository.list(includeArchived = false).filter { it.active } }
+                .onSuccess { guards = it }
+                .onFailure { error = userFriendlyError(it, "Não foi possível carregar os porteiros.") }
+            loading = false
+        }
     }
+
+    LaunchedEffect(Unit) { load() }
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
@@ -61,15 +68,11 @@ fun GuardsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
-            item {
-                SectionHeading(
-                    "Equipe da portaria",
-                    "Cadastre a equipe, mantenha as fotos atualizadas e gerencie os acessos.",
-                )
-            }
+            item { SectionHeading("Equipe da portaria", "Cadastre a equipe e gerencie foto e PIN de acesso.") }
             item {
                 Button(
                     onClick = { showCreate = true },
+                    enabled = !loading,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -82,21 +85,16 @@ fun GuardsScreen(onBack: () -> Unit) {
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
 
             if (!loading && guards.isEmpty()) {
-                item {
-                    EmptyStateCard(
-                        "Nenhum porteiro ativo",
-                        "Cadastre o primeiro porteiro para começar a operação.",
-                        Icons.Rounded.Badge,
-                    )
-                }
+                item { EmptyStateCard("Nenhum porteiro ativo", "Cadastre o primeiro porteiro para começar.", Icons.Rounded.Badge) }
             }
 
             items(guards, key = { it.id }) { guard ->
                 GuardCard(
                     guard = guard,
+                    removing = removingId == guard.id,
                     onPhoto = { photoGuard = guard },
                     onResetPin = { confirmReset = guard },
-                    onArchive = { confirmArchive = guard },
+                    onRemove = { confirmRemove = guard },
                 )
             }
             item { Spacer(Modifier.height(18.dp)) }
@@ -106,11 +104,11 @@ fun GuardsScreen(onBack: () -> Unit) {
     if (showCreate) {
         NewGuardDialog(
             onDismiss = { showCreate = false },
-            onCreated = { name, pin ->
+            onCreated = { guard, pin ->
                 showCreate = false
-                tempPinGuardName = name
+                guards = (guards + guard).sortedBy { it.name.lowercase() }
+                tempPinGuardName = guard.name
                 tempPin = pin
-                refresh++
             },
         )
     }
@@ -119,15 +117,18 @@ fun GuardsScreen(onBack: () -> Unit) {
         GuardPhotoDialog(
             guard = guard,
             onDismiss = { photoGuard = null },
-            onSaved = { photoGuard = null; refresh++ },
+            onSaved = { newUrl ->
+                guards = guards.map { if (it.id == guard.id) it.copy(photoUrl = newUrl) else it }
+                photoGuard = null
+            },
         )
     }
 
     confirmReset?.let { guard ->
         AlertDialog(
             onDismissRequest = { confirmReset = null },
-            title = { Text("Redefinir PIN?") },
-            text = { Text("Um novo PIN temporário será criado para ${guard.name}. O PIN atual deixará de funcionar.") },
+            title = { Text("Gerar novo PIN?") },
+            text = { Text("O PIN atual de ${guard.name} deixará de funcionar.") },
             dismissButton = { TextButton(onClick = { confirmReset = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
@@ -137,30 +138,35 @@ fun GuardsScreen(onBack: () -> Unit) {
                             .onSuccess {
                                 tempPinGuardName = guard.name
                                 tempPin = it.temporaryPin
-                                refresh++
                             }
-                            .onFailure { error = it.message }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível gerar um novo PIN.") }
                     }
-                }) { Text("Gerar novo PIN") }
+                }) { Text("Gerar PIN") }
             },
         )
     }
 
-    confirmArchive?.let { guard ->
+    confirmRemove?.let { guard ->
         AlertDialog(
-            onDismissRequest = { confirmArchive = null },
-            title = { Text("Arquivar ${guard.name}?") },
-            text = { Text("Ele sairá imediatamente da equipe ativa e ficará disponível na área Arquivados.") },
-            dismissButton = { TextButton(onClick = { confirmArchive = null }) { Text("Cancelar") } },
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Remover ${guard.name}?") },
+            text = { Text("O porteiro sairá da equipe ativa. O histórico já registrado continuará preservado.") },
+            dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
-                    confirmArchive = null
+                    confirmRemove = null
+                    removingId = guard.id
+                    val previous = guards
+                    guards = guards.filterNot { it.id == guard.id }
                     scope.launch {
                         runCatching { GuardRepository.archive(guard.id) }
-                            .onSuccess { refresh++ }
-                            .onFailure { error = it.message }
+                            .onFailure {
+                                guards = previous
+                                error = userFriendlyError(it, "Não foi possível remover este porteiro.")
+                            }
+                        removingId = null
                     }
-                }) { Text("Arquivar") }
+                }) { Text("Remover") }
             },
         )
     }
@@ -168,7 +174,7 @@ fun GuardsScreen(onBack: () -> Unit) {
     tempPin?.let { pin ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("PIN temporário gerado") },
+            title = { Text("PIN temporário") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(tempPinGuardName, fontWeight = FontWeight.Bold)
@@ -181,10 +187,10 @@ fun GuardsScreen(onBack: () -> Unit) {
                             color = RondaSafeColors.Navy,
                         )
                     }
-                    Text("Anote este PIN. No primeiro acesso o porteiro deverá criar um PIN pessoal.")
+                    Text("Anote este PIN. No primeiro acesso o porteiro criará um PIN pessoal.")
                 }
             },
-            confirmButton = { Button(onClick = { tempPin = null }) { Text("Já anotei") } },
+            confirmButton = { Button(onClick = { tempPin = null }) { Text("OK") } },
         )
     }
 }
@@ -192,9 +198,10 @@ fun GuardsScreen(onBack: () -> Unit) {
 @Composable
 private fun GuardCard(
     guard: GuardDto,
+    removing: Boolean,
     onPhoto: () -> Unit,
     onResetPin: () -> Unit,
-    onArchive: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -227,32 +234,32 @@ private fun GuardCard(
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
                     Text(guard.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                    Spacer(Modifier.height(2.dp))
                     Text(
-                        if (guard.pinState == "TEMPORARY") "PIN temporário • troca pendente" else "Acesso configurado",
+                        if (guard.pinState == "TEMPORARY") "Primeiro acesso pendente" else "Acesso configurado",
                         style = MaterialTheme.typography.bodySmall,
                         color = RondaSafeColors.Muted,
                     )
                 }
+                if (removing) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onPhoto, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onPhoto, enabled = !removing, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Rounded.PhotoCamera, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text(if (guard.photoUrl.isNullOrBlank()) "Foto" else "Alterar", maxLines = 1)
+                    Text("Foto", maxLines = 1)
                 }
-                OutlinedButton(onClick = onResetPin, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onResetPin, enabled = !removing, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("PIN", maxLines = 1)
+                    Text("Novo PIN", maxLines = 1)
                 }
             }
-            OutlinedButton(
-                onClick = onArchive,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Danger),
-            ) { Text("Arquivar porteiro", maxLines = 1, fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = onRemove, enabled = !removing, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.DeleteOutline, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Remover porteiro", color = RondaSafeColors.Danger)
+            }
         }
     }
 }
@@ -260,7 +267,7 @@ private fun GuardCard(
 @Composable
 private fun NewGuardDialog(
     onDismiss: () -> Unit,
-    onCreated: (String, String) -> Unit,
+    onCreated: (GuardDto, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -276,12 +283,11 @@ private fun NewGuardDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedButton(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { launcher.launch("image/*") }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.PhotoCamera, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (photoUri == null) "Adicionar foto (opcional)" else "Foto selecionada • trocar", maxLines = 1)
+                    Text(if (photoUri == null) "Adicionar foto (opcional)" else "Foto selecionada", maxLines = 1)
                 }
-                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -294,17 +300,27 @@ private fun NewGuardDialog(
                         loading = true
                         error = null
                         runCatching {
-                            val photo = photoUri?.let { readPhoto(context.contentResolver, it) }
-                            GuardRepository.createWithPhoto(
+                            val photo = photoUri?.let { uri ->
+                                withContext(Dispatchers.IO) { readPhoto(context.contentResolver, uri) }
+                            }
+                            val response = GuardRepository.createWithPhoto(
                                 name = name,
                                 photoBytes = photo?.bytes,
                                 contentType = photo?.contentType,
                                 extension = photo?.extension ?: "jpg",
                             )
-                        }.onSuccess { response ->
+                            val mutation = response.guard ?: error("Porteiro não retornado.")
                             val pin = response.temporaryPin ?: error("PIN temporário não retornado.")
-                            onCreated(name.trim(), pin)
-                        }.onFailure { error = it.message }
+                            val guard = GuardDto(
+                                id = mutation.guardId,
+                                name = mutation.guardName,
+                                photoUrl = null,
+                                pinState = mutation.pinState,
+                                active = true,
+                            )
+                            guard to pin
+                        }.onSuccess { (guard, pin) -> onCreated(guard, pin) }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível cadastrar o porteiro.") }
                         loading = false
                     }
                 },
@@ -314,7 +330,7 @@ private fun NewGuardDialog(
 }
 
 @Composable
-private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: () -> Unit) {
+private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var uri by remember { mutableStateOf<Uri?>(null) }
@@ -327,12 +343,11 @@ private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: ()
         title = { Text("Foto de ${guard.name}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { launcher.launch("image/*") }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.PhotoCamera, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (uri == null) "Escolher foto" else "Foto selecionada • trocar", maxLines = 1)
+                    Text(if (uri == null) "Escolher foto" else "Foto selecionada", maxLines = 1)
                 }
-                Text("JPEG, PNG ou WebP • máximo 5 MB", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -342,13 +357,15 @@ private fun GuardPhotoDialog(guard: GuardDto, onDismiss: () -> Unit, onSaved: ()
                 val selected = uri ?: return@Button
                 scope.launch {
                     loading = true
+                    error = null
                     runCatching {
-                        val photo = readPhoto(context.contentResolver, selected)
+                        val photo = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, selected) }
                         GuardRepository.uploadPhoto(guard.id, photo.bytes, photo.contentType, photo.extension)
-                    }.onSuccess { onSaved() }.onFailure { error = it.message }
+                    }.onSuccess(onSaved)
+                        .onFailure { error = userFriendlyError(it, "Não foi possível salvar a foto.") }
                     loading = false
                 }
-            }) { Text(if (loading) "Enviando..." else "Salvar foto") }
+            }) { Text(if (loading) "Enviando..." else "Salvar") }
         },
     )
 }

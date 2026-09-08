@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material3.*
@@ -22,9 +22,6 @@ import com.rondasafe.app.data.model.CheckpointDto
 import com.rondasafe.app.data.model.FloorDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.ui.components.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
@@ -34,29 +31,20 @@ fun SimplifiedCheckpointsScreen(
     onSelect: (CheckpointDto) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var refresh by remember { mutableIntStateOf(0) }
     var data by remember { mutableStateOf<List<CheckpointDto>>(emptyList()) }
-    var qrReady by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addOpen by remember { mutableStateOf(false) }
-    var archiveTarget by remember { mutableStateOf<CheckpointDto?>(null) }
+    var removeTarget by remember { mutableStateOf<CheckpointDto?>(null) }
+    var removingId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(refresh, floor.id) {
+    LaunchedEffect(floor.id) {
         loading = true
         error = null
         runCatching {
-            val checkpoints = AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
-            val readiness = coroutineScope {
-                checkpoints.map { checkpoint ->
-                    async { checkpoint.id to (runCatching { AdminRepository.getActiveQr(checkpoint.id) }.getOrNull() != null) }
-                }.awaitAll().toMap()
-            }
-            checkpoints to readiness
-        }.onSuccess { (checkpoints, readiness) ->
-            data = checkpoints
-            qrReady = readiness
-        }.onFailure { error = it.message }
+            AdminRepository.listCheckpoints(floor.id, includeArchived = false).filter { it.active }
+        }.onSuccess { data = it }
+            .onFailure { error = userFriendlyError(it, "Não foi possível carregar os pontos deste andar.") }
         loading = false
     }
 
@@ -70,16 +58,16 @@ fun SimplifiedCheckpointsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                val ready = qrReady.values.count { it }
                 SectionHeading(
-                    "Pontos de controle",
-                    if (data.isEmpty()) "Cadastre os locais que farão parte da ronda."
-                    else "$ready de ${data.size} QR Code(s) prontos para uso.",
+                    "Pontos de ronda",
+                    if (data.isEmpty()) "Cadastre os locais que o porteiro precisa visitar."
+                    else "${data.size} ponto(s) neste andar.",
                 )
             }
             item {
                 Button(
                     onClick = { addOpen = true },
+                    enabled = !loading,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -90,15 +78,29 @@ fun SimplifiedCheckpointsScreen(
             }
 
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            error?.let {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            it,
+                            modifier = Modifier.padding(14.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            }
             if (!loading && data.isEmpty()) {
-                item { EmptyStateCard("Nenhum ponto cadastrado", "Ex.: Hall, Elevador, Escada, Garagem ou Área externa.", Icons.Rounded.Place) }
+                item { EmptyStateCard("Nenhum ponto cadastrado", "Ex.: Hall, elevador, escada ou garagem.", Icons.Rounded.Place) }
             }
 
             items(data, key = { it.id }) { checkpoint ->
-                val isReady = qrReady[checkpoint.id] == true
+                val removing = removingId == checkpoint.id
                 Card(
-                    onClick = { onSelect(checkpoint) },
+                    onClick = { if (!removing) onSelect(checkpoint) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -115,27 +117,20 @@ fun SimplifiedCheckpointsScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(checkpoint.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
-                            checkpoint.description?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 2)
-                            }
-                            Spacer(Modifier.height(5.dp))
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = if (isReady) RondaSafeColors.GreenSoft else Color(0xFFFFF4DF),
-                            ) {
-                                Text(
-                                    if (isReady) "QR pronto" else "QR pendente",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isReady) RondaSafeColors.Green else Color(0xFFB66A00),
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
+                            Text(
+                                "Toque para ver ou imprimir o QR Code",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RondaSafeColors.Muted,
+                            )
                         }
-                        IconButton(onClick = { archiveTarget = checkpoint }) {
-                            Icon(Icons.Rounded.Archive, contentDescription = "Arquivar ponto", tint = RondaSafeColors.Muted)
+                        if (removing) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { removeTarget = checkpoint }) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remover ponto", tint = RondaSafeColors.Muted)
+                            }
+                            Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                         }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                     }
                 }
             }
@@ -147,28 +142,35 @@ fun SimplifiedCheckpointsScreen(
         SimpleCheckpointDialog(
             onDismiss = { addOpen = false },
             onConfirm = { name, description ->
-                AdminRepository.createCheckpoint(floor.id, name, description)
+                val created = AdminRepository.createCheckpoint(floor.id, name, description)
+                data = (data + created).sortedBy { it.sortOrder }
                 addOpen = false
-                refresh++
+                error = null
             },
         )
     }
 
-    archiveTarget?.let { checkpoint ->
+    removeTarget?.let { checkpoint ->
         AlertDialog(
-            onDismissRequest = { archiveTarget = null },
-            title = { Text("Arquivar ${checkpoint.name}?") },
-            text = { Text("O ponto sairá da lista ativa. Leituras e históricos anteriores serão preservados.") },
-            dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text("Cancelar") } },
+            onDismissRequest = { removeTarget = null },
+            title = { Text("Remover ${checkpoint.name}?") },
+            text = { Text("Ele sairá da operação. O histórico já registrado continuará preservado.") },
+            dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
-                    archiveTarget = null
+                    removeTarget = null
+                    removingId = checkpoint.id
+                    val previous = data
+                    data = data.filterNot { it.id == checkpoint.id }
                     scope.launch {
                         runCatching { AdminRepository.archive("checkpoints", checkpoint.id) }
-                            .onSuccess { refresh++ }
-                            .onFailure { error = it.message }
+                            .onFailure {
+                                data = previous
+                                error = userFriendlyError(it, "Não foi possível remover este ponto.")
+                            }
+                        removingId = null
                     }
-                }) { Text("Arquivar") }
+                }) { Text("Remover") }
             },
         )
     }
@@ -215,7 +217,7 @@ private fun SimpleCheckpointDialog(
                         loading = true
                         error = null
                         runCatching { onConfirm(name.trim(), description.trim().takeIf { it.isNotBlank() }) }
-                            .onFailure { error = it.message }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível adicionar este ponto.") }
                         loading = false
                     }
                 },
