@@ -17,6 +17,7 @@ data class BlockDto(
     val name: String,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    @SerialName("system_fixed") val systemFixed: Boolean = false,
 )
 
 @Serializable
@@ -26,6 +27,7 @@ data class FloorDto(
     val name: String,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    @SerialName("system_fixed") val systemFixed: Boolean = false,
 )
 
 @Serializable
@@ -36,6 +38,7 @@ data class CheckpointDto(
     val description: String? = null,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    @SerialName("system_fixed") val systemFixed: Boolean = false,
 )
 
 @Serializable
