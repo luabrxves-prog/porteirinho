@@ -13,31 +13,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.model.AlertDto
-import com.rondasafe.app.data.repository.AdminRepository
+import com.rondasafe.app.presentation.admin.viewmodel.AlertsViewModel
 import com.rondasafe.app.ui.components.*
-import kotlinx.coroutines.launch
 
 @Composable
-fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var alerts by remember { mutableStateOf<List<AlertDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var showResolved by remember { mutableStateOf(false) }
-
-    fun reload() {
-        scope.launch {
-            loading = true
-            error = null
-            runCatching { AdminRepository.listAlerts(includeResolved = showResolved) }
-                .onSuccess { loaded -> alerts = if (showResolved) loaded.filter { it.resolvedAt != null } else loaded }
-                .onFailure { error = it.message }
-            loading = false
-        }
-    }
-    LaunchedEffect(showResolved) { reload() }
+fun AlertsScreen(
+    onBack: () -> Unit,
+    onOpenHistory: () -> Unit,
+    viewModel: AlertsViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val showResolved = state.resolution == "RESOLVED"
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
@@ -51,55 +41,76 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
             item {
                 SectionHeading(
                     "Situações que precisam de atenção",
-                    "Veja o que aconteceu, quando aconteceu e consulte a ronda antes de concluir a análise.",
+                    "Consulte somente o período necessário e refine por situação e severidade.",
                 )
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !showResolved,
-                        onClick = { showResolved = false },
-                        label = { Text("Pendentes") },
-                        modifier = Modifier.weight(1f),
-                    )
-                    FilterChip(
-                        selected = showResolved,
-                        onClick = { showResolved = true },
-                        label = { Text("Resolvidos") },
-                        modifier = Modifier.weight(1f),
-                    )
+                    listOf("PENDING" to "Pendentes", "RESOLVED" to "Resolvidos").forEach { (value, label) ->
+                        FilterChip(
+                            selected = state.resolution == value,
+                            onClick = { viewModel.setResolution(value) },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            if (!loading && alerts.isEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(7, 30, 90).forEach { days ->
+                        FilterChip(
+                            selected = state.days == days,
+                            onClick = { viewModel.setDays(days) },
+                            label = { Text("$days dias") },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(null to "Todas", "CRITICAL" to "Crítico", "WARNING" to "Atenção").forEach { (value, label) ->
+                        FilterChip(
+                            selected = state.severity == value,
+                            onClick = { viewModel.setSeverity(value) },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (!state.loading && state.items.isEmpty()) {
                 item {
                     EmptyStateCard(
                         if (showResolved) "Nenhum alerta resolvido" else "Tudo em ordem",
-                        if (showResolved) "Os alertas concluídos aparecerão aqui." else "Nenhum alerta ativo neste momento.",
+                        "Nenhum alerta foi encontrado para os filtros e período selecionados.",
                         Icons.Rounded.NotificationsActive,
                     )
                 }
             }
-            items(alerts, key = { it.id }) { alert ->
+            items(state.items, key = { it.id }) { alert ->
                 AlertCard(
                     alert = alert,
                     showResolved = showResolved,
-                    onOpen = {
-                        if (alert.readAt == null) scope.launch {
-                            runCatching { AdminRepository.markAlertRead(alert.id) }
-                            reload()
-                        }
-                    },
+                    onOpen = { if (alert.readAt == null) viewModel.markRead(alert.id) },
                     onOpenHistory = onOpenHistory,
-                    onResolve = {
-                        scope.launch {
-                            runCatching { AdminRepository.resolveAlert(alert.id) }
-                                .onSuccess { reload() }
-                                .onFailure { error = it.message }
-                        }
-                    },
+                    onResolve = { viewModel.resolve(alert.id) },
                 )
+            }
+            if (state.hasMore) {
+                item {
+                    OutlinedButton(
+                        onClick = viewModel::loadMore,
+                        enabled = !state.loadingMore,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (state.loadingMore) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Carregar mais alertas")
+                    }
+                }
             }
             item { Spacer(Modifier.height(18.dp)) }
         }
@@ -147,9 +158,7 @@ private fun AlertCard(
                 HorizontalDivider(color = RondaSafeColors.Border)
                 Text(alert.message, style = MaterialTheme.typography.bodyMedium)
                 if (alert.patrolRunId != null) {
-                    OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) {
-                        Text("Ver ronda")
-                    }
+                    OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) { Text("Ver ronda") }
                 }
                 if (!showResolved) {
                     Button(onClick = onResolve, modifier = Modifier.fillMaxWidth()) { Text("Marcar como resolvido") }
