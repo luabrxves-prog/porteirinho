@@ -5,11 +5,16 @@ import com.rondasafe.app.data.model.AvailablePatrolDto
 import com.rondasafe.app.data.model.CachedGuardDto
 import com.rondasafe.app.data.model.PortariaCacheResponse
 import com.rondasafe.app.data.model.PortariaGuardDto
+import com.rondasafe.app.data.sync.SyncLogger
 import com.rondasafe.app.security.OfflineCredentialVault
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
@@ -18,6 +23,7 @@ import javax.crypto.spec.PBEKeySpec
 
 object OfflineOperationalCache {
     private const val CACHE_KEY = "portaria_operational_cache_v1"
+    private const val ROOM_CACHE_KEY = "portaria"
     private const val PIN_LOCK_KEY_PREFIX = "offline_pin_lock_v1_"
     private const val MAX_PIN_ATTEMPTS = 5
     private const val PIN_LOCKOUT_MS = 15 * 60 * 1000L
@@ -39,21 +45,52 @@ object OfflineOperationalCache {
 
     private data class PinAttemptState(val attempts: Int, val lockedUntilEpochMs: Long)
 
-    fun save(context: Context, cache: PortariaCacheResponse) {
-        val encoded = runCatching { json.encodeToString(cache) }.getOrNull() ?: return
-        safeVaultPut(context, CACHE_KEY, encoded)
+    suspend fun save(context: Context, cache: PortariaCacheResponse) = withContext(Dispatchers.IO) {
+        val encoded = json.encodeToString(cache)
+        OfflineDatabase.get(context).offlineDao().saveOperationalCache(
+            OperationalCacheEntity(
+                cacheKey = ROOM_CACHE_KEY,
+                payloadJson = encoded,
+                generatedAt = cache.generatedAt,
+                savedAt = Instant.now().toString(),
+            )
+        )
+        safeVaultRemove(context, CACHE_KEY)
+        SyncLogger.event("LOCAL_SAVE", "operational_cache")
     }
 
-    fun load(context: Context): PortariaCacheResponse? {
-        val raw = safeVaultGet(context, CACHE_KEY) ?: return null
-        return runCatching { json.decodeFromString<PortariaCacheResponse>(raw) }
+    suspend fun load(context: Context): PortariaCacheResponse? = withContext(Dispatchers.IO) {
+        val dao = OfflineDatabase.get(context).offlineDao()
+        val room = dao.operationalCache(ROOM_CACHE_KEY)
+        if (room != null) {
+            return@withContext runCatching { json.decodeFromString<PortariaCacheResponse>(room.payloadJson) }
+                .onFailure { dao.deleteOperationalCache(ROOM_CACHE_KEY) }
+                .getOrNull()
+        }
+
+        // Migração transparente da versão antiga, que guardava o snapshot em
+        // SharedPreferences criptografado. O valor é importado uma única vez para Room.
+        val legacyRaw = safeVaultGet(context, CACHE_KEY) ?: return@withContext null
+        val legacy = runCatching { json.decodeFromString<PortariaCacheResponse>(legacyRaw) }
             .onFailure { safeVaultRemove(context, CACHE_KEY) }
-            .getOrNull()
+            .getOrNull() ?: return@withContext null
+
+        dao.saveOperationalCache(
+            OperationalCacheEntity(
+                cacheKey = ROOM_CACHE_KEY,
+                payloadJson = legacyRaw,
+                generatedAt = legacy.generatedAt,
+                savedAt = Instant.now().toString(),
+            )
+        )
+        safeVaultRemove(context, CACHE_KEY)
+        SyncLogger.event("LOCAL_SAVE", "legacy_operational_cache_migrated")
+        legacy
     }
 
-    fun hasCache(context: Context): Boolean = load(context) != null
+    suspend fun hasCache(context: Context): Boolean = load(context) != null
 
-    fun guards(context: Context): List<PortariaGuardDto> =
+    suspend fun guards(context: Context): List<PortariaGuardDto> =
         load(context)?.guards.orEmpty().map {
             PortariaGuardDto(
                 id = it.id,
@@ -63,7 +100,7 @@ object OfflineOperationalCache {
             )
         }
 
-    fun verifyPin(context: Context, guardId: String, pin: String): PinVerification {
+    suspend fun verifyPin(context: Context, guardId: String, pin: String): PinVerification {
         val guard = load(context)?.guards?.firstOrNull { it.id == guardId }
             ?: return PinVerification.GuardUnavailable
         if (guard.credential.mustChangePin) return PinVerification.RequiresConnection
@@ -102,17 +139,17 @@ object OfflineOperationalCache {
         safeVaultRemove(context, PIN_LOCK_KEY_PREFIX + guardId)
     }
 
-    fun availablePatrols(context: Context, guardId: String): List<AvailablePatrolDto> {
+    suspend fun availablePatrols(context: Context, guardId: String): List<AvailablePatrolDto> {
         val cache = load(context) ?: return emptyList()
         val zone = runCatching { ZoneId.of(cache.building.timezone) }.getOrDefault(ZoneId.systemDefault())
         val now = LocalDateTime.now(zone)
         val isoDay = now.dayOfWeek.value
+        val result = mutableListOf<AvailablePatrolDto>()
 
-        return cache.windows.mapNotNull { window ->
-            val patrol = cache.patrols.firstOrNull { it.id == window.patrolTemplateId } ?: return@mapNotNull null
-
-            val start = parseTimeOrNull(window.startTime) ?: return@mapNotNull null
-            val end = parseTimeOrNull(window.endTime) ?: return@mapNotNull null
+        for (window in cache.windows) {
+            val patrol = cache.patrols.firstOrNull { it.id == window.patrolTemplateId } ?: continue
+            val start = parseTimeOrNull(window.startTime) ?: continue
+            val end = parseTimeOrNull(window.endTime) ?: continue
             val localNow = now.toLocalTime()
             val active = when {
                 end > start -> window.dayOfWeek == isoDay && !localNow.isBefore(start) && !localNow.isAfter(end)
@@ -122,7 +159,7 @@ object OfflineOperationalCache {
                         (window.dayOfWeek == previousDay && !localNow.isAfter(end))
                 }
             }
-            if (!active) return@mapNotNull null
+            if (!active) continue
 
             val scheduledDate = when {
                 end > start -> now.toLocalDate()
@@ -132,9 +169,14 @@ object OfflineOperationalCache {
             val scheduled = LocalDateTime.of(scheduledDate, start).atZone(zone)
             val availableUntilDate = if (end > start) scheduledDate else scheduledDate.plusDays(1)
             val availableUntil = LocalDateTime.of(availableUntilDate, end).atZone(zone)
-            val required = requiredCheckpointIds(context, patrol.id).size
+            val required = cache.patrolCheckpoints
+                .asSequence()
+                .filter { it.patrolTemplateId == patrol.id && it.required }
+                .map { it.checkpointId }
+                .toSet()
+                .size
 
-            AvailablePatrolDto(
+            result += AvailablePatrolDto(
                 patrolTemplateId = patrol.id,
                 scheduleWindowId = window.id,
                 patrolName = patrol.name,
@@ -143,17 +185,18 @@ object OfflineOperationalCache {
                 isLate = now.atZone(zone).toInstant().isAfter(scheduled.plusMinutes(window.lateToleranceMinutes.toLong()).toInstant()),
                 requiredPoints = required,
             )
-        }.sortedBy { it.scheduledFor }
+        }
+        return result.sortedBy { it.scheduledFor }
     }
 
-    fun requiredCheckpointIds(context: Context, patrolTemplateId: String): Set<String> =
+    suspend fun requiredCheckpointIds(context: Context, patrolTemplateId: String): Set<String> =
         load(context)?.patrolCheckpoints.orEmpty()
             .asSequence()
             .filter { it.patrolTemplateId == patrolTemplateId && it.required }
             .map { it.checkpointId }
             .toSet()
 
-    fun qrMatch(context: Context, rawQr: String): QrMatch? {
+    suspend fun qrMatch(context: Context, rawQr: String): QrMatch? {
         val cache = load(context) ?: return null
         val hash = tokenHash(rawQr)
         val qr = cache.qrTokens.firstOrNull { constantTimeEquals(it.tokenHash, hash) } ?: return null
@@ -164,6 +207,9 @@ object OfflineOperationalCache {
     fun tokenHash(rawQr: String): String = sha256Hex(rawQr)
 
     fun clear(context: Context) {
+        runBlocking(Dispatchers.IO) {
+            OfflineDatabase.get(context).offlineDao().deleteOperationalCache(ROOM_CACHE_KEY)
+        }
         safeVaultRemove(context, CACHE_KEY)
     }
 
