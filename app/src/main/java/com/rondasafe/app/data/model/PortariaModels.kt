@@ -75,7 +75,11 @@ data class GuardLoginResponse(
 data class GuardListResponse(val guards: List<PortariaGuardDto> = emptyList(), val error: String? = null)
 
 @Serializable
-data class ShiftDto(@SerialName("shift_id") val shiftId: String, @SerialName("started_at_server") val startedAtServer: String)
+data class ShiftDto(
+    @SerialName("shift_id") val shiftId: String,
+    @SerialName("started_at_server") val startedAtServer: String,
+    val synced: Boolean = true,
+)
 @Serializable
 data class ShiftResponse(val shift: ShiftDto? = null, val error: String? = null)
 
@@ -100,6 +104,7 @@ data class PatrolRunDto(
     @SerialName("run_id") val runId: String,
     @SerialName("required_points") val requiredPoints: Int,
     @SerialName("started_at_server") val startedAtServer: String,
+    val synced: Boolean = true,
 )
 @Serializable
 data class PatrolRunResponse(val run: PatrolRunDto? = null, val error: String? = null)
@@ -111,6 +116,7 @@ data class ScanDto(
     @SerialName("visited_points") val visitedPoints: Int,
     @SerialName("total_points") val totalPoints: Int,
     @SerialName("checkpoint_name") val checkpointName: String? = null,
+    val synced: Boolean = true,
 )
 @Serializable
 data class ScanResponse(val scan: ScanDto? = null, val error: String? = null)
@@ -121,6 +127,7 @@ data class FinishPatrolDto(
     @SerialName("visited_points") val visitedPoints: Int,
     @SerialName("total_points") val totalPoints: Int,
     @SerialName("missing_checkpoint_ids") val missingCheckpointIds: List<String> = emptyList(),
+    val synced: Boolean = true,
 )
 @Serializable
 data class FinishPatrolResponse(val result: FinishPatrolDto? = null, val error: String? = null)
