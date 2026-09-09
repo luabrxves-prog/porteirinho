@@ -1,0 +1,124 @@
+name: Reported Regression Validation
+on:
+  push:
+    branches: [fix/reported-regressions]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: reported-regressions-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize reviewed source
+        run: |
+          python3 scripts/qa/apply_reviewed_regressions.py
+          if ! git diff --quiet; then
+            git config user.name 'RondaSafe Validation'
+            git config user.email 'rondasafe-validation@users.noreply.github.com'
+            git add app scripts/qa
+            git commit -m 'fix: restore scanner bounds and reconcile obsolete empty shift conflicts'
+            git push origin HEAD:fix/reported-regressions
+          fi
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Unit tests, lint and Android packages
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+      - name: Record source and package identity
+        if: always()
+        run: |
+          mkdir -p package-info
+          git rev-parse HEAD > package-info/commit.txt
+          git archive --format=zip HEAD -o package-info/source.zip
+          TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            "$TOOLS/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk > package-info/signature.txt
+            "$TOOLS/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > package-info/package.txt
+            "$TOOLS/aapt" dump xmltree app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml > package-info/manifest.txt
+            sha256sum app/build/outputs/apk/debug/app-debug.apk > package-info/SHA256SUMS.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: regression-packages
+          path: app/build/outputs/apk/**/*.apk
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-build-evidence
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            package-info/
+            scripts/qa/reported-regressions.patch.gz
+          retention-days: 14
+  android-validation:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reported-regressions
+      - uses: actions/download-artifact@v4
+        with:
+          name: regression-packages
+          path: apk
+      - name: Boot two clients with cameras enabled
+        timeout-minutes: 9
+        run: bash scripts/qa/boot-android.sh
+      - name: Full regression suite on both clients
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          failed=0
+          for serial in emulator-5554 emulator-5556; do
+            adb -s "$serial" install -r apk/debug/app-debug.apk
+            adb -s "$serial" install -r apk/androidTest/debug/app-debug-androidTest.apk
+            timeout 300 adb -s "$serial" shell am instrument -w com.rondasafe.app.test/androidx.test.runner.AndroidJUnitRunner | tee "evidence/${serial}-tests.txt"
+            if ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "evidence/${serial}-tests.txt"; then failed=1; fi
+            if grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|shortMsg=' "evidence/${serial}-tests.txt"; then failed=1; fi
+          done
+          exit "$failed"
+      - name: Collect camera and test evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          for serial in emulator-5554 emulator-5556; do
+            timeout 10 adb -s "$serial" logcat -d -b crash > "evidence/${serial}-crash.txt" || true
+            timeout 10 adb -s "$serial" logcat -d -s RondaSafeSync:I RondaSafeRealtimeTest:I CameraX:I '*:S' > "evidence/${serial}-sync-camera.txt" || true
+            adb -s "$serial" exec-out run-as com.rondasafe.app cat files/camera-preview.png > "evidence/${serial}-preview.png" || true
+          done
+          git rev-parse HEAD > evidence/commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-android-evidence
+          path: evidence/
+          retention-days: 14
+      - name: Package candidate after tests
+        if: success()
+        run: |
+          mkdir -p delivery
+          cp apk/debug/app-debug.apk delivery/RondaSafe-0.7.2-rc2.apk
+          sha256sum delivery/*.apk > delivery/SHA256SUMS.txt
+          printf '%s\n' 'Debug candidate. Verify signature compatibility before updating existing installations.' 'Do not uninstall or clear local data to bypass an update-signature error.' 'Camera streaming validated on emulators; bundled QR decoder exercised with generated images.' 'This is not proof of scanning physical printed QR codes on the user phone.' > delivery/VALIDATION_SCOPE.txt
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: RondaSafe-0.7.2-rc2-tested
+          path: delivery/
+          retention-days: 14

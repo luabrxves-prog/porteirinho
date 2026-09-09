@@ -6,6 +6,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -27,7 +30,7 @@ private const val FIXED_PATROLS_PER_DAY = 3
 private const val DASHBOARD_REFRESH_MS = 10_000L
 
 private data class DashboardMetrics(
-    val condominium: String = "Condomínio",
+    val condominium: String = "Condomínio Solar Carlos Gomes",
     val today: List<PatrolHistoryItemDto> = emptyList(),
     val openAlerts: Int = 0,
 ) {
@@ -60,14 +63,18 @@ fun AdminDashboardScreenV3(
     val scope = rememberCoroutineScope()
     var metrics by remember { mutableStateOf(DashboardMetrics()) }
     var loading by remember { mutableStateOf(true) }
+    var condominiumName by rememberSaveable { mutableStateOf("Condomínio Solar Carlos Gomes") }
 
     LaunchedEffect(Unit) {
         var firstLoad = true
         while (true) {
             if (firstLoad) loading = true
+            try {
+                condominiumName = withTimeout(15_000) { AdminRepository.condominium().name }
+            } catch (e: CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
+              catch (_: Exception) { /* Keep the known name, never create another building. */ }
             runCatching {
                 coroutineScope {
-                    val condominiumDeferred = async { AdminRepository.condominium() }
                     val alertsDeferred = async { AdminRepository.listAlerts().size }
                     val todayDeferred = async {
                         val today = LocalDate.now(dashboardZone)
@@ -77,7 +84,7 @@ fun AdminDashboardScreenV3(
                         )
                     }
                     DashboardMetrics(
-                        condominium = condominiumDeferred.await().name,
+                        condominium = condominiumName,
                         today = todayDeferred.await(),
                         openAlerts = alertsDeferred.await(),
                     )
@@ -100,7 +107,7 @@ fun AdminDashboardScreenV3(
         ) {
             item {
                 CondoPhotoHeroCard(
-                    title = metrics.condominium,
+                    title = condominiumName,
                     subtitle = "Resumo de hoje",
                 )
             }

@@ -20,7 +20,10 @@ object AdminRepository {
 
     suspend fun listBuildings(includeArchived: Boolean = false): List<BuildingDto> =
         client.from("buildings").select {
-            if (!includeArchived) filter { eq("active", true) }
+            filter {
+                exact("e2e_run_id", null)
+                if (!includeArchived) eq("active", true)
+            }
         }.decodeList()
 
     suspend fun listBlocks(buildingId: String, includeArchived: Boolean = false): List<BlockDto> =
@@ -48,9 +51,10 @@ object AdminRepository {
         }.decodeList<CheckpointDto>().sortedBy { it.sortOrder }
 
     suspend fun condominium(): BuildingDto {
-        val existing = listBuildings().firstOrNull()
-        if (existing != null) return existing
-        return createBuilding("Condomínio Solar Carlos Gomes")
+        // Reading the dashboard must never create or restore a condominium.
+        val existing = listBuildings()
+        return existing.singleOrNull()
+            ?: error("Não foi possível identificar o condomínio. Atualize a sessão administrativa.")
     }
 
     suspend fun defaultBlocks(): List<BlockDto> {

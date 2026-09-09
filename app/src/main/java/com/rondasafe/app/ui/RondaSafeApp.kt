@@ -78,9 +78,9 @@ fun RondaSafeApp() {
     // Command screens own their state and refresh streams. An incoming server update
     // must not cancel the command which caused it or erase a confirmation dialog.
     val refreshEpoch = when (screen) {
-        AppScreen.ENTRY, AppScreen.ADMIN_DASHBOARD, AppScreen.ADMIN_SETTINGS,
+        AppScreen.ENTRY, AppScreen.ADMIN_SETTINGS,
         AppScreen.ALERTS, AppScreen.PATROL_HISTORY, AppScreen.REPORTS,
-        AppScreen.LOCATIONS, AppScreen.CHECKPOINTS, AppScreen.CHECKPOINT_DETAIL,
+        AppScreen.LOCATIONS, AppScreen.CHECKPOINTS,
         AppScreen.GUARDS, AppScreen.PATROLS, AppScreen.GUARD_SELECTION -> syncEpoch
         else -> 0L
     }

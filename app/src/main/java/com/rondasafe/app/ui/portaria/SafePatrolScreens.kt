@@ -1,6 +1,9 @@
 package com.rondasafe.app.ui.portaria
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -136,25 +139,30 @@ fun SafePatrolScannerScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var scanned by remember { mutableIntStateOf(0) }
+    val qrGate = remember(run.runId) { QrReadGate() }
     val visited = local?.visitedPoints ?: scanned
     val total = local?.requiredPoints ?: run.requiredPoints
     val busy = processing || finishing || occurrenceSaving
-    Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar(patrolName) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            OfflineSyncStatusBanner(Modifier.padding(horizontal = 18.dp))
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("$visited/$total pontos registrados", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("patrol_progress"))
+    Scaffold(containerColor = Color(0xFF081018), topBar = { AppTopBar(patrolName) }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().background(Color(0xFF081018))) {
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("$visited/$total pontos registrados", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("patrol_progress"))
                 LinearProgressIndicator(progress = { if (total > 0) (visited.toFloat() / total).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth())
-                message?.let { Text(it, modifier = Modifier.testTag("scan_message")) }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("scanner_error")) }
+                message?.let { Text(it, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("scan_message")) }
+                error?.let { Text(it, color = Color(0xFFFF8C8C), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("scanner_error")) }
             }
-            camera(Modifier.fillMaxWidth().weight(1f).background(Color.Black), !busy && !occurrenceOpen) { qr ->
-                if (!busy && !occurrenceOpen) {
+            // One stable, bounded viewport. Sync messages cannot push it off screen.
+            Box(Modifier.padding(horizontal = 18.dp).weight(1f).fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp)).border(2.dp, RondaSafeColors.Blue, RoundedCornerShape(24.dp))
+                .testTag("camera_viewport")) {
+            camera(Modifier.fillMaxSize().background(Color.Black), !busy && !occurrenceOpen) { qr ->
+                val capturedAt = android.os.SystemClock.elapsedRealtime()
+                if (!busy && !occurrenceOpen && qrGate.acquire(qr, capturedAt)) {
                     processing = true
                     error = null
                     scope.launch {
                         try {
-                            val result = withTimeout(25_000) { ops.scan(run.runId, qr, android.os.SystemClock.elapsedRealtime()) }
+                            val result = withTimeout(25_000) { ops.scan(run.runId, qr, capturedAt) }
                             scanned = result.visitedPoints
                             message = when (result.scanResult) {
                                 "ACCEPTED" -> if (result.synced) "Ponto confirmado pelo servidor." else "Leitura salva neste aparelho. Aguardando sincronização."
@@ -166,11 +174,13 @@ fun SafePatrolScannerScreen(
                         } catch (e: TimeoutCancellationException) { error = "A leitura não foi confirmada. Verifique as pendências antes de repetir." }
                         catch (e: CancellationException) { throw e }
                         catch (e: Exception) { error = userFriendlyError(e, "Não foi possível registrar o ponto.") }
-                        finally { processing = false }
+                        finally { processing = false; qrGate.release() }
                     }
                 }
             }
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            }
+            OfflineSyncStatusBanner(Modifier.padding(horizontal = 18.dp, vertical = 4.dp), compact = true)
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { occurrenceOpen = true; error = null }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("report_occurrence")) { Text("Registrar ocorrência") }
                 Button(
                     onClick = {

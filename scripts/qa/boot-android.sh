@@ -16,7 +16,7 @@ done
 adb start-server
 for pair in A:5554 B:5556; do
   n=${pair%:*}; port=${pair#*:}
-  nohup "$ANDROID_HOME/emulator/emulator" -avd "qa$n" -port "$port" -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -feature -Vulkan -cores 2 -memory 1536 -camera-back none -camera-front none -no-metrics > "/tmp/emulator$n.log" 2>&1 &
+  nohup "$ANDROID_HOME/emulator/emulator" -avd "qa$n" -port "$port" -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -feature -Vulkan -cores 2 -memory 1536 -camera-back emulated -camera-front none -no-metrics > "/tmp/emulator$n.log" 2>&1 &
   pid=$!
   sleep 3
   kill -0 "$pid" || { cat "/tmp/emulator$n.log"; exit 1; }
