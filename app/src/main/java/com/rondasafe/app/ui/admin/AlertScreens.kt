@@ -19,6 +19,9 @@ import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.launch
 
+private fun AlertDto.isActionableAdminAlert(): Boolean =
+    alertType == "GUARD_OCCURRENCE" || alertType == "PATROL_TOO_FAST"
+
 @Composable
 fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -32,7 +35,11 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
             loading = true
             error = null
             runCatching { AdminRepository.listAlerts(includeResolved = showResolved) }
-                .onSuccess { loaded -> alerts = if (showResolved) loaded.filter { it.resolvedAt != null } else loaded }
+                .onSuccess { loaded ->
+                    alerts = loaded
+                        .filter { it.isActionableAdminAlert() }
+                        .let { filtered -> if (showResolved) filtered.filter { it.resolvedAt != null } else filtered }
+                }
                 .onFailure { error = it.message }
             loading = false
         }
@@ -51,7 +58,7 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
             item {
                 SectionHeading(
                     "Situações que precisam de atenção",
-                    "Veja o que aconteceu, quando aconteceu e consulte a ronda antes de concluir a análise.",
+                    "Aqui aparecem ocorrências registradas pelo porteiro e leituras de QR Codes feitas com intervalo muito baixo.",
                 )
             }
             item {
@@ -76,7 +83,7 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
                 item {
                     EmptyStateCard(
                         if (showResolved) "Nenhum alerta resolvido" else "Tudo em ordem",
-                        if (showResolved) "Os alertas concluídos aparecerão aqui." else "Nenhum alerta ativo neste momento.",
+                        if (showResolved) "Os alertas concluídos aparecerão aqui." else "Nenhuma ocorrência ou leitura rápida demais neste momento.",
                         Icons.Rounded.NotificationsActive,
                     )
                 }
@@ -162,13 +169,7 @@ private fun AlertCard(
 }
 
 private fun alertTypeLabel(type: String): String = when (type) {
-    "PATROL_NOT_STARTED" -> "Ronda não realizada"
-    "PATROL_LATE" -> "Ronda atrasada"
-    "PATROL_INCOMPLETE" -> "Ronda incompleta"
-    "PATROL_TOO_FAST" -> "Ronda rápida demais"
     "GUARD_OCCURRENCE" -> "Ocorrência informada"
-    "SUSPICIOUS_SCAN" -> "Atividade para revisar"
-    "DEVICE_SYNC_STALE" -> "Portaria sem sincronização"
-    "INVALID_ACCESS" -> "Acesso inválido"
+    "PATROL_TOO_FAST" -> "Intervalo entre QR Codes baixo"
     else -> "Atenção"
 }
