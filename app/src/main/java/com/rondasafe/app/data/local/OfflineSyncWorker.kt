@@ -57,8 +57,7 @@ class OfflineSyncWorker(
                 }
                 .forEach { dao.requeuePermanentFailure(it.clientEventId) }
 
-            // Important: do not schedule another worker from inside this worker.
-            PortariaRepository.restoreDeviceCredential(appContext, schedulePendingSync = false)
+            PortariaRepository.restoreDeviceCredential(appContext)
             val device = PortariaRepository.deviceCredential ?: return Result.success()
 
             while (true) {
