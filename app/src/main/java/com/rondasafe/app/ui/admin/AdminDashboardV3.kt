@@ -17,12 +17,14 @@ import com.rondasafe.app.data.repository.PatrolHistoryRepository
 import com.rondasafe.app.ui.components.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 
 private val dashboardZone = ZoneId.of("America/Sao_Paulo")
 private const val FIXED_PATROLS_PER_DAY = 3
+private const val DASHBOARD_REFRESH_MS = 10_000L
 
 private data class DashboardMetrics(
     val condominium: String = "Condomínio",
@@ -60,26 +62,31 @@ fun AdminDashboardScreenV3(
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        loading = true
-        runCatching {
-            coroutineScope {
-                val condominiumDeferred = async { AdminRepository.condominium() }
-                val alertsDeferred = async { AdminRepository.listAlerts().size }
-                val todayDeferred = async {
-                    val today = LocalDate.now(dashboardZone)
-                    PatrolHistoryRepository.listRange(
-                        from = today.atStartOfDay(dashboardZone).toInstant(),
-                        to = today.plusDays(1).atStartOfDay(dashboardZone).toInstant().minusMillis(1),
+        var firstLoad = true
+        while (true) {
+            if (firstLoad) loading = true
+            runCatching {
+                coroutineScope {
+                    val condominiumDeferred = async { AdminRepository.condominium() }
+                    val alertsDeferred = async { AdminRepository.listAlerts().size }
+                    val todayDeferred = async {
+                        val today = LocalDate.now(dashboardZone)
+                        PatrolHistoryRepository.listRange(
+                            from = today.atStartOfDay(dashboardZone).toInstant(),
+                            to = today.plusDays(1).atStartOfDay(dashboardZone).toInstant().minusMillis(1),
+                        )
+                    }
+                    DashboardMetrics(
+                        condominium = condominiumDeferred.await().name,
+                        today = todayDeferred.await(),
+                        openAlerts = alertsDeferred.await(),
                     )
                 }
-                DashboardMetrics(
-                    condominium = condominiumDeferred.await().name,
-                    today = todayDeferred.await(),
-                    openAlerts = alertsDeferred.await(),
-                )
-            }
-        }.onSuccess { metrics = it }
-        loading = false
+            }.onSuccess { metrics = it }
+            loading = false
+            firstLoad = false
+            delay(DASHBOARD_REFRESH_MS)
+        }
     }
 
     Scaffold(
