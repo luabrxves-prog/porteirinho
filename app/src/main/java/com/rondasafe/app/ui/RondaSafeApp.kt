@@ -3,7 +3,9 @@ package com.rondasafe.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -20,6 +22,7 @@ import com.rondasafe.app.data.model.PortariaGuardDto
 import com.rondasafe.app.data.model.ShiftDto
 import com.rondasafe.app.data.repository.AuthRepository
 import com.rondasafe.app.data.repository.PortariaRepository
+import com.rondasafe.app.data.sync.SharedSyncBus
 import com.rondasafe.app.ui.admin.AdminDashboardScreenV3
 import com.rondasafe.app.ui.admin.AdminSettingsScreen
 import com.rondasafe.app.ui.admin.AlertsScreen
@@ -85,6 +88,7 @@ enum class AppScreen {
 @Composable
 fun RondaSafeApp() {
     val appContext = LocalContext.current.applicationContext
+    val syncEpoch by SharedSyncBus.epoch.collectAsState()
 
     var deviceCredentialLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -179,209 +183,233 @@ fun RondaSafeApp() {
         }
     }
 
-    when (screen) {
-        AppScreen.ENTRY -> PremiumGuardLandingScreen(
-            enabled = deviceCredentialLoaded && PortariaRepository.deviceCredential != null,
-            onGuardSelected = {
-                selectedGuard = it
-                screen = AppScreen.GUARD_PIN
-            },
-            onAdmin = ::openAdmin,
-        )
+    // Telas de consulta são recriadas quando outro aparelho altera o servidor.
+    // Telas transacionais (PIN/scanner/finalização) ficam fora dessa invalidação
+    // para nunca perder estado de uma operação em andamento.
+    val refreshEpoch = when (screen) {
+        AppScreen.ENTRY,
+        AppScreen.ADMIN_DASHBOARD,
+        AppScreen.ADMIN_SETTINGS,
+        AppScreen.ALERTS,
+        AppScreen.PATROL_HISTORY,
+        AppScreen.REPORTS,
+        AppScreen.ARCHIVED,
+        AppScreen.LOCATIONS,
+        AppScreen.CHECKPOINTS,
+        AppScreen.CHECKPOINT_DETAIL,
+        AppScreen.GUARDS,
+        AppScreen.PATROLS,
+        AppScreen.AVAILABLE_PATROLS,
+        AppScreen.GUARD_SELECTION,
+        -> syncEpoch
+        else -> 0L
+    }
 
-        AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(
-            onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD },
-            onBack = { screen = AppScreen.ENTRY },
-        )
+    key(refreshEpoch) {
+        when (screen) {
+            AppScreen.ENTRY -> PremiumGuardLandingScreen(
+                enabled = deviceCredentialLoaded && PortariaRepository.deviceCredential != null,
+                onGuardSelected = {
+                    selectedGuard = it
+                    screen = AppScreen.GUARD_PIN
+                },
+                onAdmin = ::openAdmin,
+            )
 
-        AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
-            onOpenLocations = { screen = AppScreen.LOCATIONS },
-            onOpenGuards = { screen = AppScreen.GUARDS },
-            onOpenPatrols = { screen = AppScreen.PATROLS },
-            onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
-            onOpenReports = { screen = AppScreen.REPORTS },
-            onOpenAlerts = { screen = AppScreen.ALERTS },
-            onOpenSettings = { screen = AppScreen.ADMIN_SETTINGS },
-            onLogout = {
-                screen = AppScreen.ENTRY
-                selection = AdminSelection()
-            },
-        )
+            AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(
+                onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD },
+                onBack = { screen = AppScreen.ENTRY },
+            )
 
-        AppScreen.ADMIN_SETTINGS -> AdminSettingsScreen(
-            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onOpenAssignments = { screen = AppScreen.PATROL_ASSIGNMENTS },
-            onOpenDevice = { screen = AppScreen.DEVICE_PROVISION },
-            onOpenArchived = { screen = AppScreen.ARCHIVED },
-            onOpenSync = { screen = AppScreen.OFFLINE_SYNC },
-        )
+            AppScreen.ADMIN_DASHBOARD -> AdminDashboardScreenV3(
+                onOpenLocations = { screen = AppScreen.LOCATIONS },
+                onOpenGuards = { screen = AppScreen.GUARDS },
+                onOpenPatrols = { screen = AppScreen.PATROLS },
+                onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
+                onOpenReports = { screen = AppScreen.REPORTS },
+                onOpenAlerts = { screen = AppScreen.ALERTS },
+                onOpenSettings = { screen = AppScreen.ADMIN_SETTINGS },
+                onLogout = {
+                    screen = AppScreen.ENTRY
+                    selection = AdminSelection()
+                },
+            )
 
-        AppScreen.ALERTS -> AlertsScreen(
-            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
-        )
-        AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
-        AppScreen.REPORTS -> ReportScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
-        AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
-        AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
-        AppScreen.ARCHIVED -> ArchivedScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
+            AppScreen.ADMIN_SETTINGS -> AdminSettingsScreen(
+                onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+                onOpenAssignments = { screen = AppScreen.PATROL_ASSIGNMENTS },
+                onOpenDevice = { screen = AppScreen.DEVICE_PROVISION },
+                onOpenArchived = { screen = AppScreen.ARCHIVED },
+                onOpenSync = { screen = AppScreen.OFFLINE_SYNC },
+            )
 
-        AppScreen.LOCATIONS -> SimplifiedLocationsScreen(
-            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onOpenFloor = { building, block, floor ->
-                selection = AdminSelection(building = building, block = block, floor = floor)
-                screen = AppScreen.CHECKPOINTS
-            },
-        )
+            AppScreen.ALERTS -> AlertsScreen(
+                onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+                onOpenHistory = { screen = AppScreen.PATROL_HISTORY },
+            )
+            AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+            AppScreen.REPORTS -> ReportScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+            AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
+            AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
+            AppScreen.ARCHIVED -> ArchivedScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
 
-        AppScreen.CHECKPOINTS -> {
-            val floor = selection.floor
-            if (floor == null) {
-                LaunchedEffect(Unit) { screen = AppScreen.LOCATIONS }
-            } else {
-                SimplifiedCheckpointsScreen(
-                    floor = floor,
-                    onBack = { screen = AppScreen.LOCATIONS },
-                    onSelect = {
-                        selection = selection.copy(checkpoint = it)
-                        screen = AppScreen.CHECKPOINT_DETAIL
-                    },
-                )
-            }
-        }
+            AppScreen.LOCATIONS -> SimplifiedLocationsScreen(
+                onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+                onOpenFloor = { building, block, floor ->
+                    selection = AdminSelection(building = building, block = block, floor = floor)
+                    screen = AppScreen.CHECKPOINTS
+                },
+            )
 
-        AppScreen.CHECKPOINT_DETAIL -> {
-            val checkpoint = selection.checkpoint
-            if (checkpoint == null) {
-                LaunchedEffect(Unit) {
-                    screen = if (selection.floor != null) AppScreen.CHECKPOINTS else AppScreen.LOCATIONS
+            AppScreen.CHECKPOINTS -> {
+                val floor = selection.floor
+                if (floor == null) {
+                    LaunchedEffect(Unit) { screen = AppScreen.LOCATIONS }
+                } else {
+                    SimplifiedCheckpointsScreen(
+                        floor = floor,
+                        onBack = { screen = AppScreen.LOCATIONS },
+                        onSelect = {
+                            selection = selection.copy(checkpoint = it)
+                            screen = AppScreen.CHECKPOINT_DETAIL
+                        },
+                    )
                 }
-            } else {
-                CheckpointDetailWithPrintScreen(
-                    checkpoint = checkpoint,
-                    onBack = { screen = AppScreen.CHECKPOINTS },
-                )
             }
-        }
 
-        AppScreen.GUARDS -> GuardsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
+            AppScreen.CHECKPOINT_DETAIL -> {
+                val checkpoint = selection.checkpoint
+                if (checkpoint == null) {
+                    LaunchedEffect(Unit) {
+                        screen = if (selection.floor != null) AppScreen.CHECKPOINTS else AppScreen.LOCATIONS
+                    }
+                } else {
+                    CheckpointDetailWithPrintScreen(
+                        checkpoint = checkpoint,
+                        onBack = { screen = AppScreen.CHECKPOINTS },
+                    )
+                }
+            }
 
-        AppScreen.PATROLS -> PatrolTemplatesScreen(
-            onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onCreate = { screen = AppScreen.PATROLS },
-            onEdit = {
-                selectedPatrolTemplate = it
-                screen = AppScreen.PATROL_EDIT
-            },
-        )
+            AppScreen.GUARDS -> GuardsScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
 
-        AppScreen.PATROL_CREATE -> {
-            LaunchedEffect(Unit) { screen = AppScreen.PATROLS }
-        }
+            AppScreen.PATROLS -> PatrolTemplatesScreen(
+                onBack = { screen = AppScreen.ADMIN_DASHBOARD },
+                onCreate = { screen = AppScreen.PATROLS },
+                onEdit = {
+                    selectedPatrolTemplate = it
+                    screen = AppScreen.PATROL_EDIT
+                },
+            )
 
-        AppScreen.PATROL_EDIT -> {
-            val template = selectedPatrolTemplate
-            if (template == null) {
+            AppScreen.PATROL_CREATE -> {
                 LaunchedEffect(Unit) { screen = AppScreen.PATROLS }
-            } else {
-                CreatePatrolTemplateScreen(
-                    template = template,
-                    onBack = {
-                        selectedPatrolTemplate = null
-                        screen = AppScreen.PATROLS
-                    },
-                    onCreated = {
-                        selectedPatrolTemplate = null
-                        screen = AppScreen.PATROLS
-                    },
-                )
             }
-        }
 
-        AppScreen.DEVICE_PROVISION -> DeviceProvisionScreen(
-            onBack = { screen = AppScreen.ADMIN_SETTINGS },
-            onProvisioned = { screen = AppScreen.ENTRY },
-        )
-
-        AppScreen.GUARD_SELECTION -> GuardSelectionScreen(
-            onGuardSelected = {
-                selectedGuard = it
-                screen = AppScreen.GUARD_PIN
-            },
-            onBack = { screen = AppScreen.ENTRY },
-        )
-
-        AppScreen.GUARD_PIN -> {
-            val guard = selectedGuard
-            if (guard == null) {
-                LaunchedEffect(Unit) { screen = AppScreen.ENTRY }
-            } else {
-                GuardPinScreen(
-                    guard = guard,
-                    onSuccess = { mustChange ->
-                        screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME
-                    },
-                    onBack = {
-                        selectedGuard = null
-                        screen = AppScreen.ENTRY
-                    },
-                )
+            AppScreen.PATROL_EDIT -> {
+                val template = selectedPatrolTemplate
+                if (template == null) {
+                    LaunchedEffect(Unit) { screen = AppScreen.PATROLS }
+                } else {
+                    CreatePatrolTemplateScreen(
+                        template = template,
+                        onBack = {
+                            selectedPatrolTemplate = null
+                            screen = AppScreen.PATROLS
+                        },
+                        onCreated = {
+                            selectedPatrolTemplate = null
+                            screen = AppScreen.PATROLS
+                        },
+                    )
+                }
             }
-        }
 
-        AppScreen.GUARD_CHANGE_PIN -> ChangeGuardPinScreen(onChanged = { screen = AppScreen.SHIFT_HOME })
+            AppScreen.DEVICE_PROVISION -> DeviceProvisionScreen(
+                onBack = { screen = AppScreen.ADMIN_SETTINGS },
+                onProvisioned = { screen = AppScreen.ENTRY },
+            )
 
-        AppScreen.SHIFT_HOME -> ShiftHomeScreen(
-            onShiftStarted = {
-                shift = it
-                screen = AppScreen.AVAILABLE_PATROLS
-            },
-            onBack = { returnToGuardLanding() },
-        )
+            AppScreen.GUARD_SELECTION -> GuardSelectionScreen(
+                onGuardSelected = {
+                    selectedGuard = it
+                    screen = AppScreen.GUARD_PIN
+                },
+                onBack = { screen = AppScreen.ENTRY },
+            )
 
-        AppScreen.AVAILABLE_PATROLS -> {
-            val currentShift = shift
-            if (currentShift == null) {
-                LaunchedEffect(Unit) { returnToGuardLanding() }
-            } else {
-                AvailablePatrolsScreen(
-                    shift = currentShift,
-                    onStart = { patrol, patrolRun ->
-                        activePatrol = patrol
-                        run = patrolRun
-                        screen = AppScreen.PATROL_SCANNER
-                    },
-                    onEndShift = { returnToGuardLanding() },
-                )
+            AppScreen.GUARD_PIN -> {
+                val guard = selectedGuard
+                if (guard == null) {
+                    LaunchedEffect(Unit) { screen = AppScreen.ENTRY }
+                } else {
+                    GuardPinScreen(
+                        guard = guard,
+                        onSuccess = { mustChange ->
+                            screen = if (mustChange) AppScreen.GUARD_CHANGE_PIN else AppScreen.SHIFT_HOME
+                        },
+                        onBack = {
+                            selectedGuard = null
+                            screen = AppScreen.ENTRY
+                        },
+                    )
+                }
             }
-        }
 
-        AppScreen.PATROL_SCANNER -> {
-            val currentRun = run
-            val patrol = activePatrol
-            if (currentRun == null || patrol == null) {
-                LaunchedEffect(Unit) { returnToGuardLanding() }
-            } else {
-                PatrolScannerScreen(
-                    run = currentRun,
-                    patrolName = patrol.patrolName,
-                    onFinished = {
-                        finishResult = it
-                        screen = AppScreen.PATROL_FINISHED
-                    },
-                )
+            AppScreen.GUARD_CHANGE_PIN -> ChangeGuardPinScreen(onChanged = { screen = AppScreen.SHIFT_HOME })
+
+            AppScreen.SHIFT_HOME -> ShiftHomeScreen(
+                onShiftStarted = {
+                    shift = it
+                    screen = AppScreen.AVAILABLE_PATROLS
+                },
+                onBack = { returnToGuardLanding() },
+            )
+
+            AppScreen.AVAILABLE_PATROLS -> {
+                val currentShift = shift
+                if (currentShift == null) {
+                    LaunchedEffect(Unit) { returnToGuardLanding() }
+                } else {
+                    AvailablePatrolsScreen(
+                        shift = currentShift,
+                        onStart = { patrol, patrolRun ->
+                            activePatrol = patrol
+                            run = patrolRun
+                            screen = AppScreen.PATROL_SCANNER
+                        },
+                        onEndShift = { returnToGuardLanding() },
+                    )
+                }
             }
-        }
 
-        AppScreen.PATROL_FINISHED -> {
-            val result = finishResult
-            if (result == null) {
-                LaunchedEffect(Unit) { returnToGuardLanding() }
-            } else {
-                PatrolFinishedScreen(
-                    result = result,
-                    onDone = { returnToGuardLanding() },
-                )
+            AppScreen.PATROL_SCANNER -> {
+                val currentRun = run
+                val patrol = activePatrol
+                if (currentRun == null || patrol == null) {
+                    LaunchedEffect(Unit) { returnToGuardLanding() }
+                } else {
+                    PatrolScannerScreen(
+                        run = currentRun,
+                        patrolName = patrol.patrolName,
+                        onFinished = {
+                            finishResult = it
+                            screen = AppScreen.PATROL_FINISHED
+                        },
+                    )
+                }
+            }
+
+            AppScreen.PATROL_FINISHED -> {
+                val result = finishResult
+                if (result == null) {
+                    LaunchedEffect(Unit) { returnToGuardLanding() }
+                } else {
+                    PatrolFinishedScreen(
+                        result = result,
+                        onDone = { returnToGuardLanding() },
+                    )
+                }
             }
         }
     }
