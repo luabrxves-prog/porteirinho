@@ -25,7 +25,7 @@ class RondaSafeApplication : Application(), DefaultLifecycleObserver {
 
     override fun onCreate() {
         TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
-        super.onCreate()
+        super<Application>.onCreate()
 
         PortariaRepository.restoreDeviceCredential(this)
         OfflineSyncWorker.schedule(this)
