@@ -110,8 +110,6 @@ object OfflineOperationalCache {
 
         return cache.windows.mapNotNull { window ->
             val patrol = cache.patrols.firstOrNull { it.id == window.patrolTemplateId } ?: return@mapNotNull null
-            val assignments = cache.assignments.filter { it.scheduleWindowId == window.id }
-            if (assignments.isNotEmpty() && assignments.none { it.guardId == guardId }) return@mapNotNull null
 
             val start = parseTimeOrNull(window.startTime) ?: return@mapNotNull null
             val end = parseTimeOrNull(window.endTime) ?: return@mapNotNull null

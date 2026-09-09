@@ -170,7 +170,7 @@ class OfflineSyncWorker(
 
             WorkManager.getInstance(appContext).enqueueUniqueWork(
                 UNIQUE_WORK,
-                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request,
             )
         }
