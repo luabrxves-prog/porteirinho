@@ -15,7 +15,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -58,37 +59,36 @@ object CentralSyncManager {
 
         realtimeJob = scope.launch {
             val channel = client.channel("rondasafe-client-sync")
-            try {
-                channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
-                    table = "client_sync_state"
-                }.collectLatest { change ->
-                    val record = change.record
-                    val version = record["version"]?.jsonPrimitive?.longOrNull ?: return@collectLatest
-                    val operation = record["operation"]?.jsonPrimitive?.contentOrNull ?: "UPDATE"
-                    val changedTable = record["changed_table"]?.jsonPrimitive?.contentOrNull
-                    if (version <= lastVersion) return@collectLatest
-                    lastVersion = version
-                    when (operation) {
-                        "INSERT" -> SyncLogger.event("REALTIME_INSERT", changedTable)
-                        "DELETE" -> SyncLogger.event("REALTIME_DELETE", changedTable)
-                        else -> SyncLogger.event("REALTIME_UPDATE", changedTable)
-                    }
-                    refreshFromServer(appContext, version)
+            val collector = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+                table = "client_sync_state"
+            }.onEach { change ->
+                val record = change.record
+                val version = record["version"]?.jsonPrimitive?.longOrNull ?: return@onEach
+                val operation = record["operation"]?.jsonPrimitive?.contentOrNull ?: "UPDATE"
+                val changedTable = record["changed_table"]?.jsonPrimitive?.contentOrNull
+                if (version <= lastVersion) return@onEach
+                lastVersion = version
+                when (operation) {
+                    "INSERT" -> SyncLogger.event("REALTIME_INSERT", changedTable)
+                    "DELETE" -> SyncLogger.event("REALTIME_DELETE", changedTable)
+                    else -> SyncLogger.event("REALTIME_UPDATE", changedTable)
                 }
+                refreshFromServer(appContext, version)
+            }.launchIn(this)
+
+            try {
+                channel.subscribe(blockUntilSubscribed = true)
+                awaitCancellation()
+            } catch (error: Exception) {
+                SyncLogger.error("SYNC_ERROR", error)
             } finally {
+                collector.cancel()
                 runCatching { channel.unsubscribe() }
             }
         }
 
-        scope.launch {
-            // A coleta acima precisa estar registrada antes da assinatura.
-            delay(50)
-            runCatching {
-                val channel = client.realtime.channels.firstOrNull { it.topic.contains("rondasafe-client-sync") }
-                channel?.subscribe(blockUntilSubscribed = true)
-            }.onFailure { SyncLogger.error("SYNC_ERROR", it) }
-        }
-
+        // Fallback periódico: se o websocket cair silenciosamente, outro aparelho
+        // ainda percebe a nova versão sem precisar fechar e abrir o app.
         pollJob = scope.launch {
             while (true) {
                 runCatching {
