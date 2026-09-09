@@ -9,7 +9,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.model.PatrolHistoryItemDto
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.AuthRepository
@@ -19,9 +21,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.ZoneId
-
-private val dashboardZone = ZoneId.of("America/Sao_Paulo")
 
 private data class DashboardMetrics(
     val condominium: String = "Condomínio",
@@ -29,7 +28,9 @@ private data class DashboardMetrics(
     val openAlerts: Int = 0,
 ) {
     val total: Int get() = today.size
-    val completed: Int get() = today.count { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
+    val completed: Int get() = today.count {
+        it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0
+    }
 }
 
 @Composable
@@ -44,6 +45,7 @@ fun AdminDashboardScreenV3(
     onLogout: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val dashboardZone = AppTime.zone()
     var metrics by remember { mutableStateOf(DashboardMetrics()) }
     var loading by remember { mutableStateOf(true) }
 
@@ -104,24 +106,68 @@ fun AdminDashboardScreenV3(
                 val foreground = if (hasAlerts) Color(0xFFB66A00) else RondaSafeColors.Green
                 Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = background) {
                     Column(Modifier.padding(16.dp)) {
-                        Text(title, fontWeight = FontWeight.ExtraBold, color = foreground, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            title,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = foreground,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Spacer(Modifier.height(4.dp))
-                        Text(subtitle, color = RondaSafeColors.Text, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            subtitle,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = RondaSafeColors.Text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Justify,
+                        )
                     }
                 }
             }
 
+            // Keep the compact layout readable on narrow phones: two cards on top,
+            // one full-width card below. This avoids cropped labels/icons.
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.total.toString(), "Previstas", Icons.Rounded.Schedule, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.completed.toString(), "Concluídas", Icons.Rounded.CheckCircle, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.openAlerts.toString(), "Alertas", Icons.Rounded.NotificationsActive, Modifier.weight(1f))
+                    PremiumMetricCard(
+                        metrics.total.toString(),
+                        "Previstas",
+                        Icons.Rounded.Schedule,
+                        Modifier.weight(1f),
+                    )
+                    PremiumMetricCard(
+                        metrics.completed.toString(),
+                        "Concluídas",
+                        Icons.Rounded.CheckCircle,
+                        Modifier.weight(1f),
+                    )
                 }
+            }
+            item {
+                PremiumMetricCard(
+                    metrics.openAlerts.toString(),
+                    "Alertas",
+                    Icons.Rounded.NotificationsActive,
+                    Modifier.fillMaxWidth(),
+                )
             }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Acompanhar") }
-            item { PremiumMenuRow("Rondas de hoje e histórico", "Veja o que foi feito e o que ficou pendente", Icons.Rounded.History, onOpenHistory) }
-            item { PremiumMenuRow("Alertas", "Todas as anomalias e situações que precisam de revisão", Icons.Rounded.NotificationsActive, onOpenAlerts) }
+            item {
+                PremiumMenuRow(
+                    "Rondas de hoje e histórico",
+                    "Veja o que foi feito e o que ficou pendente",
+                    Icons.Rounded.History,
+                    onOpenHistory,
+                )
+            }
+            item {
+                PremiumMenuRow(
+                    "Alertas",
+                    "Todas as anomalias e situações que precisam de revisão",
+                    Icons.Rounded.NotificationsActive,
+                    onOpenAlerts,
+                )
+            }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Gerenciar") }
             item { PremiumMenuRow("Horários das rondas", "Altere somente início e fim das rondas fixas", Icons.Rounded.Schedule, onOpenPatrols) }
