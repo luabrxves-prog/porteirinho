@@ -4,13 +4,14 @@ import android.content.Context
 import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.local.PendingEventEntity
+import com.rondasafe.app.data.sync.SyncLogger
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.UUID
 
 object OccurrenceRepository {
-    suspend fun report(context: Context, runClientEventId: String, description: String) {
+    suspend fun report(context: Context, runClientEventId: String, description: String): Boolean {
         val text = description.trim()
         require(text.length in 3..1000) { "Descreva a ocorrência com pelo menos 3 caracteres." }
 
@@ -36,6 +37,19 @@ object OccurrenceRepository {
                 monotonicMs = null,
             ),
         )
+        SyncLogger.event("LOCAL_SAVE", "GUARD_OCCURRENCE id=${eventId.take(8)}")
+
+        if (!guard.offline) {
+            runCatching { OfflineSyncWorker.syncPending(appContext) }
+                .onFailure { SyncLogger.error("SYNC_ERROR", it) }
+            if (dao.eventState(eventId) == PendingEventEntity.STATE_SYNCED) {
+                SyncLogger.event("REMOTE_SAVE", "GUARD_OCCURRENCE id=${eventId.take(8)}")
+                return true
+            }
+        }
+
         OfflineSyncWorker.schedule(appContext)
+        SyncLogger.event("SYNC_PENDING", "GUARD_OCCURRENCE id=${eventId.take(8)}")
+        return false
     }
 }
