@@ -44,3 +44,169 @@ jobs:
           name: rondasafe-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+  two-device-sync:
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SUPABASE_URL: https://vnammkljeterezqtpvvm.supabase.co
+      SUPABASE_KEY: sb_publishable_iqJK7zGZAIBfJ75FMtPWzA_3Q-MrZjy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: rondasafe-debug-apk
+          path: apk
+
+      - name: Install emulator tooling
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n rondasafeA -k "system-images;android-35;google_apis;x86_64" --force
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n rondasafeB -k "system-images;android-35;google_apis;x86_64" --force
+          sudo chmod 666 /dev/kvm || true
+
+      - name: Start two Android emulators
+        run: |
+          nohup "$ANDROID_HOME/emulator/emulator" -avd rondasafeA -port 5554 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot >/tmp/emulatorA.log 2>&1 &
+          nohup "$ANDROID_HOME/emulator/emulator" -avd rondasafeB -port 5556 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot >/tmp/emulatorB.log 2>&1 &
+          for serial in emulator-5554 emulator-5556; do
+            adb -s "$serial" wait-for-device
+            for i in $(seq 1 120); do
+              if [ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then break; fi
+              sleep 2
+            done
+            test "$(adb -s "$serial" shell getprop sys.boot_completed | tr -d '\r')" = "1"
+            adb -s "$serial" shell settings put global window_animation_scale 0
+            adb -s "$serial" shell settings put global transition_animation_scale 0
+            adb -s "$serial" shell settings put global animator_duration_scale 0
+          done
+
+      - name: Bootstrap isolated E2E data
+        run: |
+          RUN_ID="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          curl -fsS "$SUPABASE_URL/rest/v1/rpc/e2e_test_control" \
+            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" -H "Content-Type: application/json" \
+            -d "{\"p_action\":\"bootstrap\",\"p_run_id\":\"$RUN_ID\"}" > /tmp/bootstrap.json
+          jq -e '.device_a_id and .device_a_secret and .device_b_id and .device_b_secret and .guard_id' /tmp/bootstrap.json >/dev/null
+          {
+            echo "DEVICE_A_ID=$(jq -r .device_a_id /tmp/bootstrap.json)"
+            echo "DEVICE_A_SECRET=$(jq -r .device_a_secret /tmp/bootstrap.json)"
+            echo "DEVICE_B_ID=$(jq -r .device_b_id /tmp/bootstrap.json)"
+            echo "DEVICE_B_SECRET=$(jq -r .device_b_secret /tmp/bootstrap.json)"
+            echo "GUARD_ID=$(jq -r .guard_id /tmp/bootstrap.json)"
+          } >> "$GITHUB_ENV"
+
+      - name: Install and configure both clients
+        run: |
+          APK=apk/app-debug.apk
+          for serial in emulator-5554 emulator-5556; do adb -s "$serial" install -r "$APK" >/dev/null; done
+          adb -s emulator-5554 shell am start -n com.rondasafe.app/.MainActivity >/dev/null
+          adb -s emulator-5556 shell am start -n com.rondasafe.app/.MainActivity >/dev/null
+          sleep 3
+          adb -s emulator-5554 logcat -c
+          adb -s emulator-5556 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.CONFIGURE -n com.rondasafe.app/.E2eSyncReceiver --es device_id "$DEVICE_A_ID" --es device_secret "$DEVICE_A_SECRET" >/dev/null
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CONFIGURE -n com.rondasafe.app/.E2eSyncReceiver --es device_id "$DEVICE_B_ID" --es device_secret "$DEVICE_B_SECRET" >/dev/null
+          sleep 8
+          adb -s emulator-5554 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK CONFIGURE'
+          adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK CONFIGURE'
+
+      - name: Scenario A - create on A and recover on B
+        run: |
+          adb -s emulator-5554 logcat -c; adb -s emulator-5556 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.SERVER_MUTATION -n com.rondasafe.app/.E2eSyncReceiver --es run_id "$RUN_ID" --es server_action create_shared_guard >/dev/null
+          sleep 10
+          adb -s emulator-5554 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK SERVER_MUTATION create_shared_guard'
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CACHE -n com.rondasafe.app/.E2eSyncReceiver >/dev/null
+          sleep 3
+          adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep "E2E Shared $RUN_ID"
+
+      - name: Scenario B - live update A to B
+        run: |
+          adb -s emulator-5556 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.SERVER_MUTATION -n com.rondasafe.app/.E2eSyncReceiver --es run_id "$RUN_ID" --es server_action rename_shared_guard >/dev/null
+          sleep 10
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CACHE -n com.rondasafe.app/.E2eSyncReceiver >/dev/null
+          sleep 3
+          adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep "E2E Shared Atualizado $RUN_ID"
+
+      - name: Scenario C - offline write survives close and reconnect
+        run: |
+          adb -s emulator-5554 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.LOGIN -n com.rondasafe.app/.E2eSyncReceiver --es guard_id "$GUARD_ID" --es pin 123456 >/dev/null
+          sleep 5
+          adb -s emulator-5554 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK LOGIN'
+          adb -s emulator-5554 root >/dev/null 2>&1 || true
+          adb -s emulator-5554 wait-for-device
+          adb -s emulator-5554 shell iptables -I OUTPUT 1 -j REJECT || adb -s emulator-5554 shell cmd connectivity airplane-mode enable
+          adb -s emulator-5554 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.START_SHIFT -n com.rondasafe.app/.E2eSyncReceiver >/dev/null
+          sleep 6
+          adb -s emulator-5554 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK START_SHIFT' | grep 'synced=false'
+          adb -s emulator-5554 shell am force-stop com.rondasafe.app
+          adb -s emulator-5554 shell iptables -F OUTPUT || adb -s emulator-5554 shell cmd connectivity airplane-mode disable
+          adb -s emulator-5554 shell am start -n com.rondasafe.app/.MainActivity >/dev/null
+          for i in $(seq 1 15); do
+            STATUS=$(curl -fsS "$SUPABASE_URL/rest/v1/rpc/e2e_test_control" -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" -H "Content-Type: application/json" -d "{\"p_action\":\"status\",\"p_run_id\":\"$RUN_ID\"}")
+            if [ "$(echo "$STATUS" | jq -r .active_shifts)" = "1" ]; then echo "$STATUS"; exit 0; fi
+            sleep 4
+          done
+          echo "$STATUS"; exit 1
+
+      - name: Scenario D - delete/archive does not reappear on B
+        run: |
+          adb -s emulator-5556 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.SERVER_MUTATION -n com.rondasafe.app/.E2eSyncReceiver --es run_id "$RUN_ID" --es server_action archive_shared_guard >/dev/null
+          sleep 10
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CACHE -n com.rondasafe.app/.E2eSyncReceiver >/dev/null
+          sleep 3
+          LINE=$(adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK CACHE' | tail -1)
+          echo "$LINE"
+          ! echo "$LINE" | grep -q "E2E Shared"
+
+      - name: Scenario E - PIN changed on A authenticates on B
+        run: |
+          adb -s emulator-5554 logcat -c; adb -s emulator-5556 logcat -c
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.LOGIN -n com.rondasafe.app/.E2eSyncReceiver --es guard_id "$GUARD_ID" --es pin 123456 >/dev/null
+          sleep 4
+          adb -s emulator-5554 shell am broadcast -a com.rondasafe.app.e2e.CHANGE_PIN -n com.rondasafe.app/.E2eSyncReceiver --es pin 654321 >/dev/null
+          sleep 7
+          adb -s emulator-5554 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK CHANGE_PIN'
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.LOGIN -n com.rondasafe.app/.E2eSyncReceiver --es guard_id "$GUARD_ID" --es pin 654321 >/dev/null
+          sleep 5
+          adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep 'E2E_OK LOGIN'
+
+      - name: Scenario F - stale concurrent write is rejected
+        run: |
+          RESULT=$(curl -fsS "$SUPABASE_URL/rest/v1/rpc/e2e_test_control" -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" -H "Content-Type: application/json" -d "{\"p_action\":\"conflict_test\",\"p_run_id\":\"$RUN_ID\"}")
+          echo "$RESULT"
+          test "$(echo "$RESULT" | jq -r .conflict_detected)" = "true"
+
+      - name: Scenario G - clean client recovers server state
+        run: |
+          adb -s emulator-5556 shell pm clear com.rondasafe.app >/dev/null
+          adb -s emulator-5556 shell am start -n com.rondasafe.app/.MainActivity >/dev/null
+          sleep 2
+          adb -s emulator-5556 logcat -c
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CONFIGURE -n com.rondasafe.app/.E2eSyncReceiver --es device_id "$DEVICE_B_ID" --es device_secret "$DEVICE_B_SECRET" >/dev/null
+          sleep 8
+          adb -s emulator-5556 shell am broadcast -a com.rondasafe.app.e2e.CACHE -n com.rondasafe.app/.E2eSyncReceiver >/dev/null
+          sleep 3
+          adb -s emulator-5556 logcat -d -s RondaSafeE2E:I '*:S' | grep "E2E Porteiro $RUN_ID"
+
+      - name: Cleanup E2E data
+        if: always()
+        run: |
+          if [ -n "${RUN_ID:-}" ]; then
+            curl -fsS "$SUPABASE_URL/rest/v1/rpc/e2e_test_control" -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" -H "Content-Type: application/json" -d "{\"p_action\":\"cleanup\",\"p_run_id\":\"$RUN_ID\"}" || true
+          fi
+          adb devices || true
+          tail -80 /tmp/emulatorA.log 2>/dev/null || true
+          tail -80 /tmp/emulatorB.log 2>/dev/null || true
