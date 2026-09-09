@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -15,7 +14,6 @@ import com.rondasafe.app.ui.components.*
 @Composable
 fun AdminSettingsScreen(
     onBack: () -> Unit,
-    onOpenAssignments: () -> Unit,
     onOpenDevice: () -> Unit,
     onOpenArchived: () -> Unit,
     onOpenSync: () -> Unit,
@@ -33,14 +31,6 @@ fun AdminSettingsScreen(
                 SectionHeading(
                     "Ajustes da operação",
                     "Somente configurações que podem ser necessárias no dia a dia.",
-                )
-            }
-            item {
-                PremiumMenuRow(
-                    "Responsáveis pelas rondas",
-                    "Opcional — escolha quem pode realizar cada ronda",
-                    Icons.Rounded.AssignmentInd,
-                    onOpenAssignments,
                 )
             }
             item {
