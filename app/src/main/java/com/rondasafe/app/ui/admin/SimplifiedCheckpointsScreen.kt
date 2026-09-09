@@ -58,10 +58,10 @@ fun SimplifiedCheckpointsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
+                val extraCount = data.count { it.sortOrder > 0 }
                 SectionHeading(
                     "Pontos de ronda",
-                    if (data.isEmpty()) "Cadastre os locais que o porteiro precisa visitar."
-                    else "${data.size} ponto(s) neste andar.",
+                    "1 ponto padrão fixo${if (extraCount > 0) " + $extraCount ponto(s) extra(s)" else ""}.",
                 )
             }
             item {
@@ -73,7 +73,7 @@ fun SimplifiedCheckpointsScreen(
                 ) {
                     Icon(Icons.Rounded.Add, null)
                     Spacer(Modifier.width(7.dp))
-                    Text("Adicionar ponto", fontWeight = FontWeight.Bold)
+                    Text("Adicionar ponto extra", fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -85,19 +85,16 @@ fun SimplifiedCheckpointsScreen(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.errorContainer,
                     ) {
-                        Text(
-                            it,
-                            modifier = Modifier.padding(14.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                        )
+                        Text(it, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }
             if (!loading && data.isEmpty()) {
-                item { EmptyStateCard("Nenhum ponto cadastrado", "Ex.: Hall, elevador, escada ou garagem.", Icons.Rounded.Place) }
+                item { EmptyStateCard("Ponto padrão indisponível", "O ponto fixo deste andar não foi carregado.", Icons.Rounded.Place) }
             }
 
             items(data, key = { it.id }) { checkpoint ->
+                val fixed = checkpoint.sortOrder == 0
                 val removing = removingId == checkpoint.id
                 Card(
                     onClick = { if (!removing) onSelect(checkpoint) },
@@ -118,19 +115,19 @@ fun SimplifiedCheckpointsScreen(
                         Column(Modifier.weight(1f)) {
                             Text(checkpoint.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy)
                             Text(
-                                "Toque para ver ou imprimir o QR Code",
+                                if (fixed) "Ponto padrão fixo • toque para ver ou imprimir o QR Code"
+                                else "Ponto extra • toque para ver ou imprimir o QR Code",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = RondaSafeColors.Muted,
                             )
                         }
-                        if (removing) {
-                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        } else {
-                            IconButton(onClick = { removeTarget = checkpoint }) {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remover ponto", tint = RondaSafeColors.Muted)
+                        when {
+                            removing -> CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            !fixed -> IconButton(onClick = { removeTarget = checkpoint }) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remover ponto extra", tint = RondaSafeColors.Muted)
                             }
-                            Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                         }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = RondaSafeColors.Muted)
                     }
                 }
             }
@@ -154,7 +151,7 @@ fun SimplifiedCheckpointsScreen(
         AlertDialog(
             onDismissRequest = { removeTarget = null },
             title = { Text("Remover ${checkpoint.name}?") },
-            text = { Text("Ele sairá da operação. O histórico já registrado continuará preservado.") },
+            text = { Text("Este ponto extra sairá da operação. O ponto padrão fixo do andar continuará preservado.") },
             dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancelar") } },
             confirmButton = {
                 Button(onClick = {
@@ -166,7 +163,7 @@ fun SimplifiedCheckpointsScreen(
                         runCatching { AdminRepository.archive("checkpoints", checkpoint.id) }
                             .onFailure {
                                 data = previous
-                                error = userFriendlyError(it, "Não foi possível remover este ponto.")
+                                error = userFriendlyError(it, "Não foi possível remover este ponto extra.")
                             }
                         removingId = null
                     }
@@ -189,14 +186,14 @@ private fun SimpleCheckpointDialog(
 
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text("Novo ponto") },
+        title = { Text("Novo ponto extra") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nome") },
-                    placeholder = { Text("Ex.: Hall do elevador") },
+                    placeholder = { Text("Ex.: Hall secundário") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -217,7 +214,7 @@ private fun SimpleCheckpointDialog(
                         loading = true
                         error = null
                         runCatching { onConfirm(name.trim(), description.trim().takeIf { it.isNotBlank() }) }
-                            .onFailure { error = userFriendlyError(it, "Não foi possível adicionar este ponto.") }
+                            .onFailure { error = userFriendlyError(it, "Não foi possível adicionar este ponto extra.") }
                         loading = false
                     }
                 },
