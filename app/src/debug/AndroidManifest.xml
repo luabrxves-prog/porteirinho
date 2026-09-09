@@ -10,6 +10,7 @@
                 <action android:name="com.rondasafe.app.e2e.CHANGE_PIN" />
                 <action android:name="com.rondasafe.app.e2e.START_SHIFT" />
                 <action android:name="com.rondasafe.app.e2e.FORCE_SYNC" />
+                <action android:name="com.rondasafe.app.e2e.SERVER_MUTATION" />
             </intent-filter>
         </receiver>
     </application>
