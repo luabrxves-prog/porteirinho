@@ -49,6 +49,12 @@ class OfflineSyncWorker(
             val dao = OfflineDatabase.get(appContext).offlineDao()
 
             dao.recoverLegacyCompatibilityFailures()
+            dao.permanentFailures()
+                .filter {
+                    it.type == "SHIFT_STARTED" &&
+                        it.lastError?.contains("GUARD_ALREADY_HAS_ACTIVE_SHIFT") == true
+                }
+                .forEach { dao.requeuePermanentFailure(it.clientEventId) }
 
             PortariaRepository.restoreDeviceCredential(appContext)
             val device = PortariaRepository.deviceCredential ?: return Result.success()

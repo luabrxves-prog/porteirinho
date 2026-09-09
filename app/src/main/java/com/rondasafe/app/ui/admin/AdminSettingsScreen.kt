@@ -3,6 +3,7 @@ package com.rondasafe.app.ui.admin
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Scaffold
@@ -48,6 +49,14 @@ fun AdminSettingsScreen(
                     "Use apenas para configurar ou trocar o celular da portaria",
                     Icons.Rounded.PhoneAndroid,
                     onOpenDevice,
+                )
+            }
+            item {
+                PremiumMenuRow(
+                    "Itens arquivados",
+                    "Consulte e restaure cadastros antigos",
+                    Icons.Rounded.Archive,
+                    onOpenArchived,
                 )
             }
             item { Spacer(Modifier.height(18.dp)) }

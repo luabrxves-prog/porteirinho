@@ -47,11 +47,9 @@ object AdminRepository {
             }
         }.decodeList<CheckpointDto>().sortedBy { it.sortOrder }
 
-    suspend fun condominium(): BuildingDto {
-        val existing = listBuildings().firstOrNull()
-        if (existing != null) return existing
-        return createBuilding("Condomínio Solar Carlos Gomes")
-    }
+    suspend fun condominium(): BuildingDto =
+        listBuildings().firstOrNull { it.name.trim().equals("Condomínio Solar Carlos Gomes", ignoreCase = true) }
+            ?: error("Condomínio Solar Carlos Gomes não encontrado entre os condomínios ativos.")
 
     suspend fun defaultBlocks(): List<BlockDto> {
         val building = condominium()
