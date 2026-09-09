@@ -67,6 +67,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.rondasafe.app.AppTime
+import com.rondasafe.app.data.local.OfflineDatabase
 import com.rondasafe.app.data.model.AvailablePatrolDto
 import com.rondasafe.app.data.model.FinishPatrolDto
 import com.rondasafe.app.data.model.PatrolRunDto
@@ -324,6 +325,7 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
 @Composable
 fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var error by remember { mutableStateOf<String?>(null) }
 
     Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Meu turno", onBack) }) { padding ->
@@ -335,7 +337,20 @@ fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
             Text("Quando estiver pronto, inicie seu turno.", color = RondaSafeColors.Muted)
             Spacer(Modifier.height(24.dp))
             Button(
-                onClick = { scope.launch { runCatching { PortariaRepository.startShift() }.onSuccess(onShiftStarted).onFailure { error = it.message } } },
+                onClick = {
+                    scope.launch {
+                        runCatching {
+                            val guard = PortariaRepository.guardSession ?: error("Porteiro não autenticado.")
+                            val active = OfflineDatabase.get(context).offlineDao().activeLocalShift()
+                            if (active != null) {
+                                if (active.guardId != guard.guardId) error("Já existe um turno ativo de outro porteiro neste aparelho.")
+                                ShiftDto(shiftId = active.shiftClientEventId, startedAtServer = active.startedAtLocal)
+                            } else {
+                                PortariaRepository.startShift()
+                            }
+                        }.onSuccess(onShiftStarted).onFailure { error = it.message }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
             ) { Text("Iniciar turno", fontWeight = FontWeight.Bold) }
@@ -499,7 +514,6 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
     var error by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
     var lastQr by remember { mutableStateOf<String?>(null) }
-    var lastQrAt by remember { mutableStateOf(0L) }
     var occurrenceOpen by remember { mutableStateOf(false) }
     var occurrenceText by remember { mutableStateOf("") }
     var occurrenceSaving by remember { mutableStateOf(false) }
@@ -570,11 +584,9 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                     modifier = Modifier.fillMaxSize(),
                     enabled = !processing && !occurrenceOpen,
                     onQr = { qr ->
-                        val now = SystemClock.elapsedRealtime()
-                        val repeatedTooSoon = qr == lastQr && now - lastQrAt < 15_000L
-                        if (!repeatedTooSoon) {
+                        if (qr != lastQr) {
                             lastQr = qr
-                            lastQrAt = now
+                            val now = SystemClock.elapsedRealtime()
                             processing = true
                             scope.launch {
                                 runCatching { PortariaRepository.scan(run.runId, qr, now) }
@@ -593,6 +605,7 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                             }
                         }
                     },
+                    onNoQr = { lastQr = null },
                 )
             }
 
@@ -615,7 +628,7 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
 }
 
 @Composable
-private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit) {
+private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit, onNoQr: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var permission by remember { mutableStateOf(false) }
@@ -637,6 +650,8 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
         modifier = modifier,
         factory = { ctx ->
             PreviewView(ctx).also { previewView ->
+                previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
                 val providerFuture = ProcessCameraProvider.getInstance(ctx)
                 providerFuture.addListener({
                     val provider = providerFuture.get()
@@ -647,7 +662,10 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
                         if (mediaImage == null || !enabled) { proxy.close(); return@setAnalyzer }
                         val image = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
                         scanner.process(image)
-                            .addOnSuccessListener { codes -> codes.firstOrNull()?.rawValue?.let(onQr) }
+                            .addOnSuccessListener { codes ->
+                                val raw = codes.firstOrNull()?.rawValue
+                                if (raw == null) onNoQr() else onQr(raw)
+                            }
                             .addOnCompleteListener { proxy.close() }
                     }
                     provider.unbindAll()
