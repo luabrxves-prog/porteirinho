@@ -30,9 +30,6 @@ private data class DashboardMetrics(
 ) {
     val total: Int get() = today.size
     val completed: Int get() = today.count { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
-    val attention: Int get() = today.count {
-        it.displayStatus in setOf("MISSED", "INCOMPLETE", "LATE") || it.isLate || it.suspicious || it.missingPoints > 0
-    }
 }
 
 @Composable
@@ -92,20 +89,19 @@ fun AdminDashboardScreenV3(
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
 
             item {
-                val needsAttention = metrics.attention > 0 || metrics.openAlerts > 0
+                val hasAlerts = metrics.openAlerts > 0
                 val title = when {
-                    needsAttention -> "Há algo para conferir"
+                    hasAlerts -> "Há alertas para conferir"
                     metrics.total == 0 -> "Sem rondas previstas hoje"
                     else -> "Tudo em ordem"
                 }
                 val subtitle = when {
-                    metrics.attention > 0 -> "${metrics.attention} ronda(s) precisam da sua atenção."
-                    metrics.openAlerts > 0 -> "${metrics.openAlerts} alerta(s) pendente(s)."
+                    hasAlerts -> "${metrics.openAlerts} alerta(s) pendente(s). Consulte a aba Alertas para revisar qualquer anomalia."
                     metrics.total == 0 -> "Nenhuma ronda está prevista para hoje."
-                    else -> "As rondas de hoje estão sem pendências."
+                    else -> "As rondas de hoje estão sem alertas pendentes."
                 }
-                val background = if (needsAttention) Color(0xFFFFF4DF) else RondaSafeColors.GreenSoft
-                val foreground = if (needsAttention) Color(0xFFB66A00) else RondaSafeColors.Green
+                val background = if (hasAlerts) Color(0xFFFFF4DF) else RondaSafeColors.GreenSoft
+                val foreground = if (hasAlerts) Color(0xFFB66A00) else RondaSafeColors.Green
                 Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = background) {
                     Column(Modifier.padding(16.dp)) {
                         Text(title, fontWeight = FontWeight.ExtraBold, color = foreground, style = MaterialTheme.typography.titleMedium)
@@ -119,25 +115,20 @@ fun AdminDashboardScreenV3(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PremiumMetricCard(metrics.total.toString(), "Previstas", Icons.Rounded.Schedule, Modifier.weight(1f))
                     PremiumMetricCard(metrics.completed.toString(), "Concluídas", Icons.Rounded.CheckCircle, Modifier.weight(1f))
-                }
-            }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.attention.toString(), "Atenção", Icons.Rounded.WarningAmber, Modifier.weight(1f))
                     PremiumMetricCard(metrics.openAlerts.toString(), "Alertas", Icons.Rounded.NotificationsActive, Modifier.weight(1f))
                 }
             }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Acompanhar") }
             item { PremiumMenuRow("Rondas de hoje e histórico", "Veja o que foi feito e o que ficou pendente", Icons.Rounded.History, onOpenHistory) }
-            item { PremiumMenuRow("Alertas", "Situações que precisam de atenção", Icons.Rounded.NotificationsActive, onOpenAlerts) }
+            item { PremiumMenuRow("Alertas", "Todas as anomalias e situações que precisam de revisão", Icons.Rounded.NotificationsActive, onOpenAlerts) }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Gerenciar") }
             item { PremiumMenuRow("Horários das rondas", "Altere somente início e fim das rondas fixas", Icons.Rounded.Schedule, onOpenPatrols) }
             item { PremiumMenuRow("Porteiros", "Equipe, foto e PIN de acesso", Icons.Rounded.Badge, onOpenGuards) }
             item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos e impressão dos QR Codes", Icons.Rounded.Place, onOpenLocations) }
             item { PremiumMenuRow("Relatórios", "Exporte informações quando precisar", Icons.Rounded.TableView, onOpenReports) }
-            item { PremiumMenuRow("Ajustes", "Responsáveis e aparelho da portaria", Icons.Rounded.Settings, onOpenSettings) }
+            item { PremiumMenuRow("Ajustes", "Aparelho da portaria e itens arquivados", Icons.Rounded.Settings, onOpenSettings) }
 
             item {
                 Spacer(Modifier.height(4.dp))
