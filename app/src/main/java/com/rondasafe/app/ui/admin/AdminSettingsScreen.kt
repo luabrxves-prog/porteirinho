@@ -30,16 +30,8 @@ fun AdminSettingsScreen(
         ) {
             item {
                 SectionHeading(
-                    "Ajustes da operação",
-                    "Somente configurações que podem ser necessárias no dia a dia.",
-                )
-            }
-            item {
-                PremiumMenuRow(
-                    "Aparelho da portaria",
-                    "Use apenas para configurar ou trocar o celular da portaria",
-                    Icons.Rounded.PhoneAndroid,
-                    onOpenDevice,
+                    "Ajustes",
+                    "Itens arquivados e aparelho da portaria.",
                 )
             }
             item {
@@ -48,6 +40,14 @@ fun AdminSettingsScreen(
                     "Consulte e restaure cadastros arquivados anteriormente",
                     Icons.Rounded.Archive,
                     onOpenArchived,
+                )
+            }
+            item {
+                PremiumMenuRow(
+                    "Aparelho da portaria",
+                    "Configure ou troque o celular usado na portaria",
+                    Icons.Rounded.PhoneAndroid,
+                    onOpenDevice,
                 )
             }
             item { Spacer(Modifier.height(18.dp)) }
