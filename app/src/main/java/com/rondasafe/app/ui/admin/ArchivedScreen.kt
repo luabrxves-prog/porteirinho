@@ -1,203 +1,179 @@
 package com.rondasafe.app.ui.admin
 
-import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.DeleteForever
-import androidx.compose.material.icons.rounded.Layers
-import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material.icons.rounded.Restore
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.rondasafe.app.data.repository.AdminRepository
-import com.rondasafe.app.data.repository.GuardRepository
-import com.rondasafe.app.data.repository.PatrolRepository
+import com.rondasafe.app.data.repository.ArchivedDataSource
+import com.rondasafe.app.data.repository.ArchivedRecord
+import com.rondasafe.app.data.repository.ArchivedRepository
+import com.rondasafe.app.data.sync.SharedSyncBus
 import com.rondasafe.app.ui.components.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-
-private data class ArchivedUiItem(
-    val id: String,
-    val type: String,
-    val category: String,
-    val name: String,
-    val subtitle: String,
-    val icon: ImageVector,
-)
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArchivedScreen(onBack: () -> Unit) {
+fun ArchivedScreen(
+    onBack: () -> Unit,
+    source: ArchivedDataSource = ArchivedRepository,
+    changes: Flow<Long> = SharedSyncBus.epoch,
+    requestTimeoutMs: Long = 20_000,
+) {
     val scope = rememberCoroutineScope()
-    var items by remember { mutableStateOf<List<ArchivedUiItem>>(emptyList()) }
+    val serial = remember { Mutex() }
+    val requests = remember { Channel<Unit>(Channel.CONFLATED) }
+    var records by remember { mutableStateOf<List<ArchivedRecord>>(emptyList()) }
     var category by remember { mutableStateOf("Todos") }
     var categoryOpen by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
-    var deleteTarget by remember { mutableStateOf<ArchivedUiItem?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var deleteTarget by remember { mutableStateOf<ArchivedRecord?>(null) }
 
-    LaunchedEffect(refresh) {
-        loading = true
+    // Refresh the data, never recreate the screen/dialog or cancel an in-flight mutation.
+    LaunchedEffect(source, changes) {
+        requests.trySend(Unit)
+        changes.collect { requests.trySend(Unit) }
+    }
+    LaunchedEffect(source) {
+        for (ignored in requests) {
+            serial.withLock {
+                loading = true
+                try {
+                    records = withTimeout(requestTimeoutMs) { source.list() }.distinctBy { it.key }
+                } catch (e: TimeoutCancellationException) {
+                    error = "O servidor demorou para responder. Tente atualizar novamente."
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    error = userFriendlyError(e, "Não foi possível carregar os itens arquivados.")
+                } finally {
+                    loading = false
+                }
+            }
+        }
+    }
+
+    fun mutate(item: ArchivedRecord, deleting: Boolean) {
+        if (busy != null) return
+        busy = item.key // synchronous: a second tap cannot start another request
         error = null
-        runCatching {
-            buildList {
-                GuardRepository.list(includeArchived = true).filter { !it.active }.forEach {
-                    add(ArchivedUiItem(it.id, "guard", "Porteiros", it.name, "Porteiro arquivado", Icons.Rounded.Badge))
-                }
-                AdminRepository.defaultBlocks().forEach { block ->
-                    val floors = AdminRepository.listFloors(block.id, includeArchived = true)
-                    floors.filter { !it.active }.forEach { floor ->
-                        add(ArchivedUiItem(floor.id, "floor", "Andares", floor.name, block.name, Icons.Rounded.Layers))
+        message = null
+        scope.launch {
+            try {
+                serial.withLock {
+                    withTimeout(requestTimeoutMs) {
+                        if (deleting) source.delete(item) else source.restore(item)
                     }
-                    floors.forEach { floor ->
-                        AdminRepository.listCheckpoints(floor.id, includeArchived = true).filter { !it.active }.forEach { checkpoint ->
-                            add(ArchivedUiItem(checkpoint.id, "checkpoint", "Pontos", checkpoint.name, "${block.name} • ${floor.name}", Icons.Rounded.Place))
-                        }
-                    }
+                    records = records.filterNot { it.key == item.key }
+                    deleteTarget = null
+                    message = if (deleting) "Exclusão confirmada pelo servidor." else "Restauração confirmada pelo servidor."
+                    requests.trySend(Unit)
                 }
-                PatrolRepository.listTemplates(includeArchived = true).filter { !it.active }.forEach {
-                    add(ArchivedUiItem(it.id, "patrol_template", "Rondas", it.name, "Programação de ronda", Icons.Rounded.Schedule))
-                }
-            }.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
-        }.onSuccess { items = it }
-            .onFailure { error = userFriendlyError(it, "Não foi possível carregar os itens arquivados.") }
-        loading = false
+            } catch (e: TimeoutCancellationException) {
+                error = "Não foi possível confirmar a resposta. Atualize a lista antes de tentar novamente."
+                deleteTarget = null
+                requests.trySend(Unit)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = userFriendlyError(e, "Não foi possível concluir a operação. O item foi mantido na lista.")
+                deleteTarget = null
+            } finally {
+                busy = null
+            }
+        }
     }
 
-    val filtered = remember(items, category) {
-        if (category == "Todos") items else items.filter { it.category == category }
-    }
-    val categories = listOf("Todos", "Porteiros", "Andares", "Pontos", "Rondas")
-
+    BackHandler(enabled = busy != null) { /* wait for the bounded request */ }
+    val visible = records.filter { category == "Todos" || it.category == category }
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { PremiumTopBar("Arquivados", onBack) },
+        topBar = { PremiumTopBar("Itens arquivados", { if (busy == null) onBack() }) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = RondaSafeUi.ScreenPadding, vertical = 14.dp),
+            modifier = Modifier.padding(padding).fillMaxSize().testTag("archives_list"),
+            contentPadding = PaddingValues(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SectionHeading("Itens arquivados", "Restaure um cadastro ou exclua definitivamente quando não houver histórico vinculado.")
+                SectionHeading("Itens arquivados", "Cadastros com histórico e itens fixos são preservados.")
+                OutlinedButton(onClick = { error = null; requests.trySend(Unit) }, enabled = busy == null) { Text("Atualizar lista") }
             }
             item {
-                ExposedDropdownMenuBox(expanded = categoryOpen, onExpandedChange = { categoryOpen = !categoryOpen }) {
+                ExposedDropdownMenuBox(expanded = categoryOpen, onExpandedChange = { if (busy == null) categoryOpen = !categoryOpen }) {
                     OutlinedTextField(
-                        value = category,
-                        onValueChange = {},
-                        readOnly = true,
+                        value = category, onValueChange = {}, readOnly = true,
                         label = { Text("Categoria") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryOpen) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(categoryOpen) },
+                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
                     )
-                    ExposedDropdownMenu(expanded = categoryOpen, onDismissRequest = { categoryOpen = false }) {
-                        categories.forEach { option ->
+                    ExposedDropdownMenu(categoryOpen, onDismissRequest = { categoryOpen = false }) {
+                        listOf("Todos", "Porteiros", "Andares", "Pontos", "Rondas").forEach { option ->
                             DropdownMenuItem(text = { Text(option) }, onClick = { category = option; categoryOpen = false })
                         }
                     }
                 }
             }
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let {
-                item {
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                        Text(it, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
+            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth().testTag("archives_loading")) }
+            error?.let { text -> item { Text(text, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("archives_error")) } }
+            message?.let { text -> item { Text(text, color = RondaSafeColors.Green, modifier = Modifier.testTag("archives_success")) } }
+            if (!loading && error == null && visible.isEmpty()) {
+                item { EmptyStateCard("Nada arquivado", "Não há itens nesta categoria.", Icons.Rounded.Archive) }
+            }
+            items(visible, key = { it.key }) { item ->
+                Card(modifier = Modifier.fillMaxWidth().testTag("archive_${item.id}"), shape = RoundedCornerShape(20.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(item.name, fontWeight = FontWeight.Bold)
+                        Text(item.subtitle, style = MaterialTheme.typography.bodySmall)
+                        item.blockedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { mutate(item, false) }, enabled = busy == null,
+                                modifier = Modifier.weight(1f).testTag("restore_${item.id}"),
+                            ) { Text("Restaurar") }
+                            OutlinedButton(
+                                onClick = { error = null; deleteTarget = item }, enabled = busy == null && item.canDelete,
+                                modifier = Modifier.weight(1f).testTag("delete_${item.id}"),
+                            ) { Text("Excluir") }
+                        }
                     }
                 }
             }
-            if (!loading && error == null && filtered.isEmpty()) {
-                item { EmptyStateCard("Nada arquivado", "Os itens arquivados aparecerão aqui.", Icons.Rounded.Archive) }
-            }
-            items(filtered, key = { "${it.type}:${it.id}" }) { item ->
-                ArchivedItemCard(
-                    item = item,
-                    onRestore = {
-                        scope.launch {
-                            runCatching {
-                                when (item.type) {
-                                    "guard" -> GuardRepository.restore(item.id)
-                                    "floor" -> AdminRepository.restore("floors", item.id)
-                                    "checkpoint" -> AdminRepository.restore("checkpoints", item.id)
-                                    "patrol_template" -> PatrolRepository.restoreTemplate(item.id)
-                                }
-                            }.onSuccess { error = null; refresh++ }
-                                .onFailure { error = userFriendlyError(it, "Não foi possível restaurar este item.") }
-                        }
-                    },
-                    onDelete = { deleteTarget = item },
-                )
-            }
-            item { Spacer(Modifier.height(18.dp)) }
         }
     }
-
-    deleteTarget?.let { target ->
+    deleteTarget?.let { item ->
         AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            icon = { Icon(Icons.Rounded.DeleteForever, null, tint = RondaSafeColors.Danger) },
+            onDismissRequest = { if (busy == null) deleteTarget = null },
+            icon = { Icon(Icons.Rounded.DeleteForever, null) },
             title = { Text("Excluir definitivamente?") },
-            text = { Text("${target.name} será removido permanentemente. Cadastros com histórico serão preservados automaticamente.") },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancelar") } },
+            text = { Text("Excluir ${item.name}? Esta ação não pode ser desfeita. O servidor verificará novamente se há histórico vinculado.") },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }, enabled = busy == null, modifier = Modifier.testTag("cancel_delete")) { Text("Cancelar") }
+            },
             confirmButton = {
-                Button(
-                    onClick = {
-                        deleteTarget = null
-                        scope.launch {
-                            runCatching { AdminRepository.deleteArchived(target.type, target.id) }
-                                .onSuccess { error = null; refresh++ }
-                                .onFailure { error = userFriendlyError(it, "Não foi possível excluir este item.") }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RondaSafeColors.Danger),
-                ) { Text("Excluir") }
+                Button(onClick = { mutate(item, true) }, enabled = busy == null, modifier = Modifier.testTag("confirm_delete")) {
+                    Text(if (busy != null) "Excluindo..." else "Excluir")
+                }
             },
         )
-    }
-}
-
-@Composable
-private fun ArchivedItemCard(item: ArchivedUiItem, onRestore: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, RondaSafeColors.Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(modifier = Modifier.size(46.dp), shape = RoundedCornerShape(14.dp), color = RondaSafeColors.BlueSoft) {
-                    Box(contentAlignment = Alignment.Center) { Icon(item.icon, null, tint = RondaSafeColors.Navy, modifier = Modifier.size(23.dp)) }
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(item.name, fontWeight = FontWeight.ExtraBold, color = RondaSafeColors.Navy, maxLines = 1)
-                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted, maxLines = 1)
-                    Text(item.category, style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Blue)
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Restore, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Restaurar", maxLines = 1)
-                }
-                OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = RondaSafeColors.Danger)) {
-                    Icon(Icons.Rounded.DeleteForever, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Excluir", maxLines = 1)
-                }
-            }
-        }
     }
 }

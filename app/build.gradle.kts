@@ -65,11 +65,11 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:functions-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
     implementation("io.github.jan-tennert.supabase:realtime-kt")
-    // The Android engine does not support WebSockets. Realtime requires OkHttp.
     implementation("io.ktor:ktor-client-okhttp:3.5.2")
     implementation("io.coil-kt.coil3:coil-compose:3.6.2")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.2")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.08.00"))
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
