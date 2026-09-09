@@ -45,7 +45,7 @@ class OutboxProcessor(
             var madeProgress = false
             for (event in batch) {
                 val payload = try { json.parseToJsonElement(event.payloadJson).jsonObject } catch (e: Exception) {
-                    dao.markPermanentFailure(event.clientEventId, "INVALID_LOCAL_PAYLOAD")
+                    reject(event, "INVALID_LOCAL_PAYLOAD")
                     madeProgress = true
                     continue
                 }
@@ -61,12 +61,12 @@ class OutboxProcessor(
                 if (!response.ack) {
                     val code = response.error?.takeIf { it.matches(Regex("[A-Z0-9_]{1,100}")) } ?: "SERVER_REJECTED_EVENT"
                     if (response.retryable == false) {
-                        dao.markPermanentFailure(event.clientEventId, code)
+                        reject(event, code)
                         madeProgress = true
                         continue
                     }
                     dao.markFailed(event.clientEventId, code)
-                    return@withLock false // A failed scan must never be overtaken by finalization.
+                    return@withLock false
                 }
                 try {
                     check(response.clientEventId == null || response.clientEventId == event.clientEventId) { "ACK_ID_MISMATCH" }
@@ -88,6 +88,25 @@ class OutboxProcessor(
             if (!madeProgress) return@withLock false
         }
         dao.pendingCount() == 0
+    }
+
+    /** Reconcile even when no UI is open. Keep the event and dependent evidence for review. */
+    private suspend fun reject(event: PendingEventEntity, reason: String) = db.withTransaction {
+        dao.markPermanentFailure(event.clientEventId, reason)
+        when (event.type) {
+            "SHIFT_STARTED" -> {
+                dao.localShift(event.clientEventId)?.let {
+                    dao.saveLocalShift(it.copy(active = false, syncState = PendingEventEntity.STATE_FAILED_PERMANENT))
+                }
+                dao.activeLocalRun()?.takeIf { it.shiftClientEventId == event.clientEventId }?.let {
+                    dao.saveLocalRun(it.copy(active = false, syncState = PendingEventEntity.STATE_FAILED_PERMANENT))
+                }
+            }
+            "PATROL_STARTED" -> dao.localRun(event.clientEventId)?.let {
+                dao.saveLocalRun(it.copy(active = false, syncState = PendingEventEntity.STATE_FAILED_PERMANENT))
+            }
+            else -> Unit
+        }
     }
 
     private suspend fun blocked(event: PendingEventEntity, payload: JsonObject): Boolean {
