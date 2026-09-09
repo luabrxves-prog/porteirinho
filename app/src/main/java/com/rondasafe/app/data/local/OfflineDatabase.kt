@@ -1,6 +1,7 @@
 package com.rondasafe.app.data.local
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -10,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -64,7 +66,15 @@ data class LocalVisitedCheckpointEntity(
     val runClientEventId: String,
     val checkpointId: String,
     val checkpointName: String,
+    /** Legacy column name: the value is an absolute Instant string, not a naive local datetime. */
     val scannedAtLocal: String,
+    @ColumnInfo(defaultValue = "''") val scanClientEventId: String = "",
+    @ColumnInfo(defaultValue = "''") val tokenHash: String = "",
+    val monotonicMs: Long? = null,
+    @ColumnInfo(defaultValue = "''") val capturedZoneId: String = "",
+    @ColumnInfo(defaultValue = "0") val capturedOffsetSeconds: Int = 0,
+    @ColumnInfo(defaultValue = "''") val capturedLocalDateTime: String = "",
+    @ColumnInfo(defaultValue = "0") val synced: Boolean = false,
 )
 
 @Dao
@@ -72,10 +82,17 @@ interface OfflineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun enqueue(event: PendingEventEntity)
 
-    @Query("select * from pending_events where state = 'PENDING' order by createdAtLocal, rowid limit :limit")
+    /**
+     * rowid is the durable insertion order of the local outbox. Do not order by
+     * wall-clock timestamps: Android time/timezone may change while events are pending.
+     */
+    @Query("select * from pending_events where state = 'PENDING' order by rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
 
-    @Query("select * from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc")
+    @Query("select * from pending_events where clientEventId = :id limit 1")
+    suspend fun eventById(id: String): PendingEventEntity?
+
+    @Query("select * from pending_events where state = 'FAILED_PERMANENT' order by rowid desc")
     suspend fun permanentFailures(): List<PendingEventEntity>
 
     @Query("select count(*) from pending_events where state = 'PENDING'")
@@ -87,7 +104,7 @@ interface OfflineDao {
     @Query("select count(*) from pending_events where state = 'FAILED_PERMANENT'")
     fun permanentFailureCountFlow(): Flow<Int>
 
-    @Query("select lastError from pending_events where state = 'FAILED_PERMANENT' order by createdAtLocal desc, rowid desc limit 1")
+    @Query("select lastError from pending_events where state = 'FAILED_PERMANENT' order by rowid desc limit 1")
     fun latestPermanentFailureFlow(): Flow<String?>
 
     @Query("delete from pending_events where clientEventId = :id")
@@ -104,11 +121,12 @@ interface OfflineDao {
 
     @Query("""
         update pending_events
-        set state = 'PENDING', attempts = 0, lastError = null
+        set state = 'PENDING', lastError = null
         where state = 'FAILED_PERMANENT'
           and (
             lastError like '%PARENT_RUN_NOT_SYNCED%'
             or lastError like '%PARENT_SHIFT_NOT_SYNCED%'
+            or lastError like '%PATROL_NOT_IN_PROGRESS%'
             or lastError like 'Registro antigo incompatível com a configuração atual do aparelho%'
           )
     """)
@@ -132,7 +150,7 @@ interface OfflineDao {
     @Query("select * from local_patrol_runs where runClientEventId = :id limit 1")
     suspend fun localRun(id: String): LocalPatrolRunEntity?
 
-    @Query("select * from local_patrol_runs where scheduleWindowId = :scheduleWindowId and scheduledFor = :scheduledFor order by startedAtLocal desc limit 1")
+    @Query("select * from local_patrol_runs where scheduleWindowId = :scheduleWindowId and scheduledFor = :scheduledFor order by rowid desc limit 1")
     suspend fun localOccurrence(scheduleWindowId: String, scheduledFor: String): LocalPatrolRunEntity?
 
     @Query("update local_patrol_runs set visitedPoints = :count where runClientEventId = :id")
@@ -144,11 +162,35 @@ interface OfflineDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addLocalVisit(visit: LocalVisitedCheckpointEntity): Long
 
+    @Transaction
+    suspend fun persistAcceptedVisitAndEvent(
+        visit: LocalVisitedCheckpointEntity,
+        event: PendingEventEntity,
+    ): Boolean {
+        require(visit.scanClientEventId == event.clientEventId) { "Evento de leitura inconsistente." }
+        val inserted = addLocalVisit(visit)
+        if (inserted == -1L) return false
+        enqueue(event)
+        return true
+    }
+
     @Query("select count(*) from local_visited_checkpoints where runClientEventId = :runId")
     suspend fun localVisitCount(runId: String): Int
 
     @Query("select checkpointId from local_visited_checkpoints where runClientEventId = :runId")
     suspend fun localVisitedCheckpointIds(runId: String): List<String>
+
+    @Query("select * from local_visited_checkpoints where synced = 0 order by rowid")
+    suspend fun unsyncedLocalVisits(): List<LocalVisitedCheckpointEntity>
+
+    @Query("update local_visited_checkpoints set synced = 1 where scanClientEventId = :eventId")
+    suspend fun markLocalVisitSynced(eventId: String)
+
+    @Transaction
+    suspend fun acknowledge(event: PendingEventEntity) {
+        if (event.type == "QR_SCANNED") markLocalVisitSynced(event.clientEventId)
+        markSynced(event.clientEventId)
+    }
 }
 
 @Database(
@@ -158,7 +200,7 @@ interface OfflineDao {
         LocalPatrolRunEntity::class,
         LocalVisitedCheckpointEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {
@@ -194,6 +236,21 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `scanClientEventId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `tokenHash` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `monotonicMs` INTEGER")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `capturedZoneId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `capturedOffsetSeconds` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `capturedLocalDateTime` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `local_visited_checkpoints` ADD COLUMN `synced` INTEGER NOT NULL DEFAULT 0")
+                // Existing rows were created by older versions. Their original outbox remains authoritative;
+                // do not manufacture new scan events with guessed token/timezone metadata.
+                db.execSQL("UPDATE `local_visited_checkpoints` SET `synced` = 1")
+            }
+        }
+
         fun get(context: Context): OfflineDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -201,7 +258,7 @@ abstract class OfflineDatabase : RoomDatabase() {
                     OfflineDatabase::class.java,
                     "rondasafe_offline.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

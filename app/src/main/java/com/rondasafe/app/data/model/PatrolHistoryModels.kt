@@ -35,7 +35,16 @@ data class PatrolHistoryPointDto(
     @SerialName("block_name") val blockName: String,
     @SerialName("floor_name") val floorName: String,
     val visited: Boolean,
+    /** Absolute event instant captured by Android. */
     @SerialName("first_scan_at") val firstScanAt: String? = null,
+    /** Server receipt instant; intentionally separate from the event instant. */
+    @SerialName("server_received_at") val serverReceivedAt: String? = null,
+    /** Android ZoneId active when the QR was scanned, e.g. America/Sao_Paulo. */
+    @SerialName("captured_zone_id") val capturedZoneId: String? = null,
+    /** Android UTC offset in seconds active when the QR was scanned. */
+    @SerialName("captured_offset_seconds") val capturedOffsetSeconds: Int? = null,
+    /** Human/audit copy of the local wall-clock value at capture time. */
+    @SerialName("captured_local_datetime") val capturedLocalDateTime: String? = null,
 )
 
 @Serializable

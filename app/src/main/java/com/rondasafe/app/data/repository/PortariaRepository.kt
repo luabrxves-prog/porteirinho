@@ -1,6 +1,7 @@
 package com.rondasafe.app.data.repository
 
 import android.content.Context
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.local.LocalPatrolRunEntity
 import com.rondasafe.app.data.local.LocalShiftEntity
 import com.rondasafe.app.data.local.LocalVisitedCheckpointEntity
@@ -18,7 +19,6 @@ import io.ktor.http.headersOf
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
-import java.time.Instant
 import java.util.UUID
 
 object PortariaRepository {
@@ -162,7 +162,8 @@ object PortariaRepository {
         dao.activeLocalShift()?.let { error("Já existe um turno ativo neste aparelho.") }
 
         val eventId = UUID.randomUUID().toString()
-        val startedAt = Instant.now().toString()
+        val captured = AppTime.captureEvent()
+        val startedAt = captured.instant.toString()
         dao.saveLocalShift(LocalShiftEntity(eventId, guard.guardId, guard.guardName, startedAt, true))
         dao.enqueue(
             PendingEventEntity(
@@ -171,6 +172,9 @@ object PortariaRepository {
                 payloadJson = buildJsonObject {
                     put("guard_id", guard.guardId)
                     put("started_at_local", startedAt)
+                    put("captured_zone_id", captured.zoneId)
+                    put("captured_offset_seconds", captured.offsetSeconds)
+                    put("captured_local_datetime", captured.localDateTime)
                 }.toString(),
                 createdAtLocal = startedAt,
                 monotonicMs = null,
@@ -227,7 +231,8 @@ object PortariaRepository {
         }
 
         val eventId = UUID.randomUUID().toString()
-        val startedAt = Instant.now().toString()
+        val captured = AppTime.captureEvent()
+        val startedAt = captured.instant.toString()
         val run = LocalPatrolRunEntity(
             runClientEventId = eventId,
             shiftClientEventId = shiftId,
@@ -255,6 +260,9 @@ object PortariaRepository {
                     put("scheduled_for", patrol.scheduledFor)
                     put("started_at_local", startedAt)
                     put("is_late", patrol.isLate)
+                    put("captured_zone_id", captured.zoneId)
+                    put("captured_offset_seconds", captured.offsetSeconds)
+                    put("captured_local_datetime", captured.localDateTime)
                 }.toString(),
                 createdAtLocal = startedAt,
                 monotonicMs = null,
@@ -271,46 +279,69 @@ object PortariaRepository {
         val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
         if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
 
-        val capturedAt = Instant.now().toString()
+        val captured = AppTime.captureEvent()
+        val capturedAt = captured.instant.toString()
         val tokenHash = OfflineOperationalCache.tokenHash(qr)
         val match = OfflineOperationalCache.qrMatch(context, qr)
         val required = OfflineOperationalCache.requiredCheckpointIds(context, run.patrolTemplateId)
-        val before = dao.localVisitCount(runId)
+        val scanEventId = UUID.randomUUID().toString()
 
-        val result: String
-        val checkpointId: String? = match?.checkpointId
-        val checkpointName: String? = match?.checkpointName
+        val event = PendingEventEntity(
+            clientEventId = scanEventId,
+            type = "QR_SCANNED",
+            payloadJson = buildJsonObject {
+                put("guard_id", guard.guardId)
+                put("run_client_event_id", runId)
+                put("token_hash", tokenHash)
+                put("captured_at_local", capturedAt)
+                put("captured_monotonic_ms", monotonicMs)
+                put("captured_zone_id", captured.zoneId)
+                put("captured_offset_seconds", captured.offsetSeconds)
+                put("captured_local_datetime", captured.localDateTime)
+            }.toString(),
+            createdAtLocal = capturedAt,
+            monotonicMs = monotonicMs,
+        )
 
-        if (match == null) {
-            result = "UNKNOWN_QR"
-        } else if (match.checkpointId !in required) {
-            result = "NOT_IN_ROUND"
-        } else {
-            val inserted = dao.addLocalVisit(
-                LocalVisitedCheckpointEntity(runId, match.checkpointId, match.checkpointName, capturedAt)
-            )
-            result = if (inserted == -1L) "DUPLICATE" else "ACCEPTED"
+        val checkpointId = match?.checkpointId
+        val checkpointName = match?.checkpointName
+        val result = when {
+            match == null -> {
+                dao.enqueue(event)
+                "UNKNOWN_QR"
+            }
+            match.checkpointId !in required -> {
+                dao.enqueue(event)
+                "NOT_IN_ROUND"
+            }
+            else -> {
+                val inserted = dao.persistAcceptedVisitAndEvent(
+                    visit = LocalVisitedCheckpointEntity(
+                        runClientEventId = runId,
+                        checkpointId = match.checkpointId,
+                        checkpointName = match.checkpointName,
+                        scannedAtLocal = capturedAt,
+                        scanClientEventId = scanEventId,
+                        tokenHash = tokenHash,
+                        monotonicMs = monotonicMs,
+                        capturedZoneId = captured.zoneId,
+                        capturedOffsetSeconds = captured.offsetSeconds,
+                        capturedLocalDateTime = captured.localDateTime,
+                        synced = false,
+                    ),
+                    event = event,
+                )
+                if (inserted) "ACCEPTED" else {
+                    // The first successful local scan remains the visit evidence.
+                    // A duplicate may still be sent for audit, but it never replaces it.
+                    dao.enqueue(event)
+                    "DUPLICATE"
+                }
+            }
         }
 
         val visited = dao.localVisitCount(runId)
-        if (visited != before) dao.updateLocalVisited(runId, visited)
-
-        val scanEventId = UUID.randomUUID().toString()
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = scanEventId,
-                type = "QR_SCANNED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("run_client_event_id", runId)
-                    put("token_hash", tokenHash)
-                    put("captured_at_local", capturedAt)
-                    put("captured_monotonic_ms", monotonicMs)
-                }.toString(),
-                createdAtLocal = capturedAt,
-                monotonicMs = monotonicMs,
-            )
-        )
+        dao.updateLocalVisited(runId, visited)
         OfflineSyncWorker.schedule(context)
 
         return ScanDto(
@@ -329,14 +360,16 @@ object PortariaRepository {
         val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
         if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
 
-        val finishedAt = Instant.now().toString()
         val visitedIds = dao.localVisitedCheckpointIds(runId).toSet()
         val requiredIds = OfflineOperationalCache.requiredCheckpointIds(context, run.patrolTemplateId)
+        require(requiredIds.isNotEmpty()) { "A ronda não possui pontos obrigatórios no cache local." }
         val missing = (requiredIds - visitedIds).toList()
-        val visited = visitedIds.count { it in requiredIds }
-        val total = requiredIds.size
-        val status = if (total > 0 && missing.isEmpty()) "COMPLETED" else "INCOMPLETE"
+        if (missing.isNotEmpty()) {
+            error("Ainda faltam ${missing.size} ponto(s). Escaneie todos os QR Codes antes de finalizar a ronda.")
+        }
 
+        val captured = AppTime.captureEvent()
+        val finishedAt = captured.instant.toString()
         val finishEventId = UUID.randomUUID().toString()
         dao.enqueue(
             PendingEventEntity(
@@ -346,21 +379,25 @@ object PortariaRepository {
                     put("guard_id", guard.guardId)
                     put("run_client_event_id", runId)
                     put("finished_at_local", finishedAt)
+                    put("captured_zone_id", captured.zoneId)
+                    put("captured_offset_seconds", captured.offsetSeconds)
+                    put("captured_local_datetime", captured.localDateTime)
                 }.toString(),
                 createdAtLocal = finishedAt,
                 monotonicMs = null,
             )
         )
+        dao.updateLocalVisited(runId, requiredIds.size)
         dao.finishLocalRun(runId)
         dao.finishLocalShift(run.shiftClientEventId)
         guardSession = null
         OfflineSyncWorker.schedule(context)
 
         return FinishPatrolDto(
-            status = status,
-            visitedPoints = visited,
-            totalPoints = total,
-            missingCheckpointIds = missing,
+            status = "COMPLETED",
+            visitedPoints = requiredIds.size,
+            totalPoints = requiredIds.size,
+            missingCheckpointIds = emptyList(),
         )
     }
 
@@ -372,7 +409,8 @@ object PortariaRepository {
         val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
         if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido.")
 
-        val endedAt = Instant.now().toString()
+        val captured = AppTime.captureEvent()
+        val endedAt = captured.instant.toString()
         val eventId = UUID.randomUUID().toString()
         dao.enqueue(
             PendingEventEntity(
@@ -382,6 +420,9 @@ object PortariaRepository {
                     put("guard_id", guard.guardId)
                     put("shift_client_event_id", shiftId)
                     put("ended_at_local", endedAt)
+                    put("captured_zone_id", captured.zoneId)
+                    put("captured_offset_seconds", captured.offsetSeconds)
+                    put("captured_local_datetime", captured.localDateTime)
                 }.toString(),
                 createdAtLocal = endedAt,
                 monotonicMs = null,

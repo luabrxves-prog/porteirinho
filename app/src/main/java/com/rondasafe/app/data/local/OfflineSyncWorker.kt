@@ -41,13 +41,14 @@ class OfflineSyncWorker(
 
     companion object {
         private const val UNIQUE_WORK = "rondasafe-offline-sync"
-        private const val MAX_PARENT_RETRIES = 6
         private val json = Json { ignoreUnknownKeys = true }
 
         suspend fun syncPending(context: Context): Result {
             val appContext = context.applicationContext
             val dao = OfflineDatabase.get(appContext).offlineDao()
 
+            // Recover events that older versions could incorrectly abandon after a
+            // parent event had not reached the server yet. Visit evidence stays local.
             dao.recoverLegacyCompatibilityFailures()
             dao.permanentFailures()
                 .filter {
@@ -60,10 +61,10 @@ class OfflineSyncWorker(
             val device = PortariaRepository.deviceCredential ?: return Result.success()
 
             while (true) {
+                // pending() is insertion ordered (Room rowid), not wall-clock ordered.
+                // This is essential if Android's clock or timezone changes mid-round.
                 val pending = dao.pending()
                 if (pending.isEmpty()) return Result.success()
-
-                var retryNeeded = false
 
                 for (event in pending) {
                     val payload = runCatching {
@@ -119,11 +120,13 @@ class OfflineSyncWorker(
                         }
                     } catch (error: Exception) {
                         dao.markFailed(event.clientEventId, error.message ?: "Falha de conexão.")
+                        // Never process a later scan/finalization while an earlier event
+                        // is uncertain. Otherwise a finish can overtake its QR scans.
                         return Result.retry()
                     }
 
                     if (response.ack) {
-                        dao.markSynced(event.clientEventId)
+                        dao.acknowledge(event)
                         continue
                     }
 
@@ -133,17 +136,8 @@ class OfflineSyncWorker(
                             event.clientEventId,
                             errorCode.ifBlank { "O servidor rejeitou definitivamente este evento." },
                         )
-                        continue
-                    }
-
-                    val parentNotSynced = errorCode == "PARENT_SHIFT_NOT_SYNCED" ||
-                        errorCode == "PARENT_RUN_NOT_SYNCED"
-
-                    if (parentNotSynced && event.attempts >= MAX_PARENT_RETRIES - 1) {
-                        dao.markPermanentFailure(
-                            event.clientEventId,
-                            "Falha de vínculo não recuperada após várias tentativas ($errorCode).",
-                        )
+                        // A permanent QR failure must remain visible locally; only the
+                        // outbox event changes state. The visit row is never deleted.
                         continue
                     }
 
@@ -151,10 +145,11 @@ class OfflineSyncWorker(
                         event.clientEventId,
                         errorCode.ifBlank { "Falha temporária de sincronização." },
                     )
-                    retryNeeded = true
-                }
 
-                if (retryNeeded) return Result.retry()
+                    // Strict ordered-outbox semantics: stop on the first retryable
+                    // failure. Parent/child events can therefore never be reordered.
+                    return Result.retry()
+                }
             }
         }
 
