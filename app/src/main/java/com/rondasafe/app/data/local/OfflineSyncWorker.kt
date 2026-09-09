@@ -12,18 +12,23 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.rondasafe.app.data.remote.SupabaseProvider
 import com.rondasafe.app.data.repository.PortariaRepository
+import com.rondasafe.app.data.sync.SyncLogger
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
 @Serializable
@@ -31,6 +36,9 @@ private data class OfflineIngestResponse(
     val ack: Boolean = false,
     val retryable: Boolean? = null,
     val error: String? = null,
+    @SerialName("shift_id") val shiftId: String? = null,
+    @SerialName("run_id") val runId: String? = null,
+    val result: JsonElement? = null,
 )
 
 class OfflineSyncWorker(
@@ -49,6 +57,7 @@ class OfflineSyncWorker(
             val dao = OfflineDatabase.get(appContext).offlineDao()
 
             dao.recoverLegacyCompatibilityFailures()
+            dao.purgeSynced(Instant.now().minus(7, ChronoUnit.DAYS).toString())
 
             PortariaRepository.restoreDeviceCredential(appContext)
             val device = PortariaRepository.deviceCredential ?: return Result.success()
@@ -60,6 +69,7 @@ class OfflineSyncWorker(
                 var retryNeeded = false
 
                 for (event in pending) {
+                    SyncLogger.event("SYNC_PENDING", "type=${event.type} id=${event.clientEventId.take(8)}")
                     val payload = runCatching {
                         json.parseToJsonElement(event.payloadJson).jsonObject
                     }.getOrElse {
@@ -67,6 +77,7 @@ class OfflineSyncWorker(
                             event.clientEventId,
                             "Payload local inválido: ${it.message ?: "erro de leitura"}",
                         )
+                        SyncLogger.error("SYNC_ERROR", it)
                         continue
                     }
 
@@ -113,11 +124,24 @@ class OfflineSyncWorker(
                         }
                     } catch (error: Exception) {
                         dao.markFailed(event.clientEventId, error.message ?: "Falha de conexão.")
+                        SyncLogger.error("SYNC_ERROR", error)
                         return Result.retry()
                     }
 
                     if (response.ack) {
-                        dao.markSynced(event.clientEventId)
+                        when (event.type) {
+                            "SHIFT_STARTED" -> dao.markShiftSynced(event.clientEventId, response.shiftId)
+                            "PATROL_STARTED" -> dao.markRunStartedSynced(event.clientEventId, response.runId)
+                            "PATROL_FINISHED" -> {
+                                val runClientId = payload["run_client_event_id"]?.jsonPrimitive?.contentOrNull
+                                val finalStatus = runCatching {
+                                    response.result?.jsonObject?.get("status")?.jsonPrimitive?.contentOrNull
+                                }.getOrNull()
+                                if (!runClientId.isNullOrBlank()) dao.markRunFinishedSynced(runClientId, finalStatus)
+                            }
+                        }
+                        dao.markSynced(event.clientEventId, Instant.now().toString())
+                        SyncLogger.event("SYNC_SUCCESS", "type=${event.type} id=${event.clientEventId.take(8)}")
                         continue
                     }
 
@@ -127,6 +151,7 @@ class OfflineSyncWorker(
                             event.clientEventId,
                             errorCode.ifBlank { "O servidor rejeitou definitivamente este evento." },
                         )
+                        SyncLogger.event("SYNC_ERROR", "type=${event.type} permanent=true code=${errorCode.take(80)}")
                         continue
                     }
 
@@ -138,6 +163,7 @@ class OfflineSyncWorker(
                             event.clientEventId,
                             "Falha de vínculo não recuperada após várias tentativas ($errorCode).",
                         )
+                        SyncLogger.event("SYNC_ERROR", "type=${event.type} parent_retry_exhausted=true")
                         continue
                     }
 
@@ -145,6 +171,7 @@ class OfflineSyncWorker(
                         event.clientEventId,
                         errorCode.ifBlank { "Falha temporária de sincronização." },
                     )
+                    SyncLogger.event("SYNC_ERROR", "type=${event.type} retryable=true code=${errorCode.take(80)}")
                     retryNeeded = true
                 }
 
