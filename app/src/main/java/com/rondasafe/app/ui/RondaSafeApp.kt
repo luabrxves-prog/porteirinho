@@ -40,7 +40,7 @@ import com.rondasafe.app.ui.portaria.ChangeGuardPinScreen
 import com.rondasafe.app.ui.portaria.GuardPinScreen
 import com.rondasafe.app.ui.portaria.GuardSelectionScreen
 import com.rondasafe.app.ui.portaria.PatrolFinishedScreen
-import com.rondasafe.app.ui.portaria.PatrolScannerScreen
+import com.rondasafe.app.ui.portaria.PatrolScannerScreenV2
 import com.rondasafe.app.ui.portaria.PremiumGuardLandingScreen
 import com.rondasafe.app.ui.portaria.ShiftHomeScreen
 import kotlinx.coroutines.Dispatchers
@@ -357,7 +357,7 @@ fun RondaSafeApp() {
             if (currentRun == null || patrol == null) {
                 LaunchedEffect(Unit) { returnToGuardLanding() }
             } else {
-                PatrolScannerScreen(
+                PatrolScannerScreenV2(
                     run = currentRun,
                     patrolName = patrol.patrolName,
                     onFinished = {
