@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rondasafe.app.AppTime
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AdminRepository
 import com.rondasafe.app.data.repository.GuardRepository
@@ -28,7 +29,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private val patrolHistoryZone = ZoneId.of("America/Sao_Paulo")
+private val patrolHistoryZone: ZoneId
+    get() = AppTime.zone()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -350,6 +352,11 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
                 Spacer(Modifier.height(3.dp))
                 item.startedAt?.let { Text("Início: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
                 item.finishedAt?.let { Text("Fim: ${historyDate(it)}", style = MaterialTheme.typography.bodySmall) }
+                Text(
+                    "Fuso exibido: ${AppTime.zoneLabel(patrolHistoryZone)} (configuração atual do Android)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = RondaSafeColors.Muted,
+                )
                 if (item.capturedOffline) {
                     Text("Sincronizada após uso offline", style = MaterialTheme.typography.bodySmall, color = RondaSafeColors.Muted)
                 }
@@ -366,11 +373,30 @@ private fun PatrolHistoryCard(item: PatrolHistoryItemDto) {
                 if (loadingPoints) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 points.forEach { point ->
-                    Text(
-                        "${if (point.visited) "✓" else "○"} ${point.blockName} • ${point.floorName} • ${point.checkpointName}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (point.visited) RondaSafeColors.Text else RondaSafeColors.Danger,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            "${if (point.visited) "✓" else "○"} ${point.blockName} • ${point.floorName} • ${point.checkpointName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (point.visited) RondaSafeColors.Text else RondaSafeColors.Danger,
+                        )
+                        if (point.visited) {
+                            point.firstScanAt?.let { eventValue ->
+                                val eventZone = AppTime.eventZone(point.capturedZoneId, point.capturedOffsetSeconds)
+                                Text(
+                                    "Escaneado: ${AppTime.dateTime(eventValue, eventZone)} • ${point.capturedZoneId ?: eventZone.id}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = RondaSafeColors.Muted,
+                                )
+                            }
+                            point.serverReceivedAt?.let { syncValue ->
+                                Text(
+                                    "Recebido no servidor: ${AppTime.dateTime(syncValue, patrolHistoryZone)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = RondaSafeColors.Muted,
+                                )
+                            }
+                        }
+                    }
                 }
             } else {
                 Text("Toque para ver detalhes", style = MaterialTheme.typography.labelSmall, color = RondaSafeColors.Blue)
@@ -447,11 +473,11 @@ private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 private fun historyDate(value: String): String = runCatching {
-    Instant.parse(value).atZone(patrolHistoryZone).format(dateTimeFormatter)
-}.getOrElse { value.replace("T", " ").substringBefore(".").replace("Z", "") }
+    AppTime.parseInstant(value).atZone(patrolHistoryZone).format(dateTimeFormatter)
+}.getOrElse { value }
 
 private fun historyScheduledLabel(value: String): String = runCatching {
-    val dateTime = Instant.parse(value).atZone(patrolHistoryZone)
+    val dateTime = AppTime.parseInstant(value).atZone(patrolHistoryZone)
     if (dateTime.toLocalDate() == LocalDate.now(patrolHistoryZone)) {
         "Prevista para ${dateTime.format(timeFormatter)}"
     } else {
