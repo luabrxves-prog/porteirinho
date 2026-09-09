@@ -10,6 +10,7 @@ data class GuardDto(
     @SerialName("photo_url") val photoUrl: String? = null,
     @SerialName("pin_state") val pinState: String,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable

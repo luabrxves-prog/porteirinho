@@ -22,21 +22,34 @@ fun OfflineSyncStatusBanner(modifier: Modifier = Modifier) {
     val flow = remember(context) { OfflineSyncStatusRepository.observe(context) }
     val status by flow.collectAsState(initial = OfflineSyncStatus())
 
-    // Sincronização normal e silenciosa. Pendências momentâneas fazem parte do
-    // mecanismo offline-first e não devem parecer erro para o porteiro.
-    if (status.failedPermanent <= 0) return
+    if (status.pending <= 0 && status.failedPermanent <= 0) return
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text(
-                "Falha de sincronização",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Text(
-                status.latestError ?: "Há registros deste aparelho que precisam de atenção do administrador.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            when {
+                status.failedPermanent > 0 -> {
+                    Text(
+                        "Falha de sincronização",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        status.latestError ?: "Há registros deste aparelho que não chegaram ao servidor.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                else -> {
+                    Text(
+                        "Aguardando sincronização",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "${status.pending} registro(s) ainda estão salvos somente neste aparelho. Não considere a ronda confirmada no sistema até este aviso desaparecer.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         }
     }
 }

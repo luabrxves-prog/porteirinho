@@ -10,6 +10,7 @@ data class PatrolTemplateDto(
     val name: String,
     val description: String? = null,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable
@@ -21,6 +22,8 @@ data class PatrolScheduleWindowDto(
     @SerialName("end_time") val endTime: String,
     @SerialName("late_tolerance_minutes") val lateToleranceMinutes: Int,
     val active: Boolean,
+    val version: Long = 1,
+    @SerialName("updated_at") val updatedAt: String? = null,
 )
 
 @Serializable
@@ -36,6 +39,7 @@ data class PatrolTemplateCheckpointDto(
     @SerialName("checkpoint_id") val checkpointId: String,
     val required: Boolean,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable
@@ -44,6 +48,7 @@ data class PatrolScheduleAssignmentDto(
     @SerialName("schedule_window_id") val scheduleWindowId: String,
     @SerialName("guard_id") val guardId: String,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable

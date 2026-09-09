@@ -11,45 +11,13 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -281,6 +250,7 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
     var confirm by remember { mutableStateOf("") }
     var stage by remember { mutableIntStateOf(1) }
     var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Criar PIN pessoal") }) { padding ->
         Column(Modifier.padding(padding).padding(22.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -294,12 +264,12 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             NumericKeypad(
                 onDigit = { digit ->
-                    if (stage == 1 && first.length < 6) first += digit
-                    if (stage == 2 && confirm.length < 6) confirm += digit
+                    if (!saving && stage == 1 && first.length < 6) first += digit
+                    if (!saving && stage == 2 && confirm.length < 6) confirm += digit
                 },
                 onBackspace = {
-                    if (stage == 1 && first.isNotEmpty()) first = first.dropLast(1)
-                    if (stage == 2 && confirm.isNotEmpty()) confirm = confirm.dropLast(1)
+                    if (!saving && stage == 1 && first.isNotEmpty()) first = first.dropLast(1)
+                    if (!saving && stage == 2 && confirm.isNotEmpty()) confirm = confirm.dropLast(1)
                 },
             )
             Spacer(Modifier.height(18.dp))
@@ -311,12 +281,19 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
                         error = "Os PINs não conferem."
                         confirm = ""
                     } else {
-                        scope.launch { runCatching { PortariaRepository.changePin(first) }.onSuccess { onChanged() }.onFailure { error = it.message } }
+                        scope.launch {
+                            saving = true
+                            error = null
+                            runCatching { PortariaRepository.changePin(first) }
+                                .onSuccess { onChanged() }
+                                .onFailure { error = it.message }
+                            saving = false
+                        }
                     }
                 },
-                enabled = current.length == 6,
+                enabled = current.length == 6 && !saving,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (stage == 1) "Continuar" else "Salvar PIN") }
+            ) { Text(if (saving) "Salvando no servidor..." else if (stage == 1) "Continuar" else "Salvar PIN") }
         }
     }
 }
@@ -325,6 +302,7 @@ fun ChangeGuardPinScreen(onChanged: () -> Unit) {
 fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = RondaSafeColors.Background, topBar = { AppTopBar("Meu turno", onBack) }) { padding ->
         Column(Modifier.padding(padding).padding(22.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -332,13 +310,28 @@ fun ShiftHomeScreen(onShiftStarted: (ShiftDto) -> Unit, onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
             Text("Olá, ${PortariaRepository.guardSession?.guardName ?: "Porteiro"}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
             Spacer(Modifier.height(6.dp))
-            Text("Quando estiver pronto, inicie seu turno.", color = RondaSafeColors.Muted)
+            Text(
+                "Quando estiver pronto, inicie seu turno.",
+                modifier = Modifier.fillMaxWidth(),
+                color = RondaSafeColors.Muted,
+                textAlign = TextAlign.Center,
+            )
             Spacer(Modifier.height(24.dp))
             Button(
-                onClick = { scope.launch { runCatching { PortariaRepository.startShift() }.onSuccess(onShiftStarted).onFailure { error = it.message } } },
+                onClick = {
+                    scope.launch {
+                        loading = true
+                        error = null
+                        runCatching { PortariaRepository.startShift() }
+                            .onSuccess(onShiftStarted)
+                            .onFailure { error = it.message }
+                        loading = false
+                    }
+                },
+                enabled = !loading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("Iniciar turno", fontWeight = FontWeight.Bold) }
+            ) { Text(if (loading) "Iniciando..." else "Iniciar turno", fontWeight = FontWeight.Bold) }
             error?.let { Spacer(Modifier.height(12.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.weight(1f))
         }
@@ -351,6 +344,7 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
     var patrols by remember { mutableStateOf<List<AvailablePatrolDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var actionLoading by remember { mutableStateOf(false) }
 
     fun refresh() {
         scope.launch {
@@ -371,12 +365,19 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { OfflineSyncStatusBanner() }
+            if (!shift.synced) {
+                item {
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = Color(0xFFFFF4DF)) {
+                        Text("Turno salvo neste aparelho. Aguardando confirmação do servidor.", Modifier.padding(14.dp), color = Color(0xFF8A5700))
+                    }
+                }
+            }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             if (!loading && patrols.isEmpty()) {
                 item {
                     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = RondaSafeColors.BlueSoft) {
-                        Text("Nenhuma ronda prevista para este horário.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
+                        Text("Nenhuma ronda disponível neste horário.", modifier = Modifier.padding(18.dp), color = RondaSafeColors.Navy)
                     }
                 }
             }
@@ -421,13 +422,7 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
                                 Text("${patrol.requiredPoints} pontos de controle", color = RondaSafeColors.Muted)
                             }
                             Surface(shape = RoundedCornerShape(12.dp), color = statusBackground) {
-                                Text(
-                                    statusText,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = statusColor,
-                                    fontWeight = FontWeight.Bold,
-                                )
+                                Text(statusText, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -447,30 +442,30 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
                             Button(
                                 onClick = {
                                     scope.launch {
+                                        actionLoading = true
+                                        error = null
                                         runCatching { PortariaRepository.startPatrol(shift.shiftId, patrol) }
                                             .onSuccess { onStart(patrol, it) }
                                             .onFailure {
                                                 error = it.message
                                                 refresh()
                                             }
+                                        actionLoading = false
                                     }
                                 },
+                                enabled = !actionLoading,
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
                                 shape = RoundedCornerShape(14.dp),
-                            ) { Text("Iniciar ronda", fontWeight = FontWeight.Bold) }
+                            ) { Text(if (actionLoading) "Confirmando..." else "Iniciar ronda", fontWeight = FontWeight.Bold) }
                         } else {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                color = statusBackground,
-                            ) {
+                            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = statusBackground) {
                                 Text(
                                     when {
                                         completed -> "Esta ronda já foi finalizada neste horário."
                                         incomplete -> "Esta ronda já foi encerrada neste horário."
-                                        else -> "Esta ronda já está em andamento."
+                                        else -> "Esta ronda já está em andamento ou aguardando sincronização."
                                     },
-                                    modifier = Modifier.padding(13.dp),
+                                    Modifier.padding(13.dp),
                                     color = statusColor,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -481,7 +476,16 @@ fun AvailablePatrolsScreen(shift: ShiftDto, onStart: (AvailablePatrolDto, Patrol
             }
             item {
                 OutlinedButton(
-                    onClick = { scope.launch { runCatching { PortariaRepository.endShift(shift.shiftId) }.onSuccess { onEndShift() }.onFailure { error = it.message } } },
+                    onClick = {
+                        scope.launch {
+                            actionLoading = true
+                            runCatching { PortariaRepository.endShift(shift.shiftId) }
+                                .onSuccess { onEndShift() }
+                                .onFailure { error = it.message }
+                            actionLoading = false
+                        }
+                    },
+                    enabled = !actionLoading,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Encerrar turno") }
                 Spacer(Modifier.height(20.dp))
@@ -495,9 +499,10 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var visited by remember { mutableIntStateOf(0) }
-    var message by remember { mutableStateOf("Aproxime o QR Code do ponto") }
+    var message by remember { mutableStateOf(if (run.synced) "Aproxime o QR Code do ponto" else "Ronda iniciada offline • aguardando sincronização") }
     var error by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
+    var finishing by remember { mutableStateOf(false) }
     var lastQr by remember { mutableStateOf<String?>(null) }
     var lastQrAt by remember { mutableStateOf(0L) }
     var occurrenceOpen by remember { mutableStateOf(false) }
@@ -534,7 +539,7 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                                 .onSuccess {
                                     occurrenceText = ""
                                     occurrenceOpen = false
-                                    message = "Ocorrência registrada. Ela será enviada ao administrador."
+                                    message = "Ocorrência registrada • aguardando confirmação do servidor se necessário"
                                 }
                                 .onFailure { error = it.message }
                             occurrenceSaving = false
@@ -542,16 +547,14 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                     },
                 ) { Text(if (occurrenceSaving) "Salvando..." else "Registrar") }
             },
-            dismissButton = {
-                TextButton(enabled = !occurrenceSaving, onClick = { occurrenceOpen = false }) { Text("Cancelar") }
-            },
+            dismissButton = { TextButton(enabled = !occurrenceSaving, onClick = { occurrenceOpen = false }) { Text("Cancelar") } },
         )
     }
 
     Scaffold(containerColor = Color(0xFF081018), topBar = { AppTopBar(patrolName) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().background(Color(0xFF081018))) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-                Text("$visited de ${run.requiredPoints} pontos confirmados", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("$visited de ${run.requiredPoints} pontos registrados", color = Color.White, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = RondaSafeColors.Blue, trackColor = Color.White.copy(alpha = 0.12f))
                 Spacer(Modifier.height(12.dp))
@@ -559,16 +562,11 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
             }
 
             Box(
-                Modifier
-                    .padding(horizontal = 18.dp)
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .border(2.dp, RondaSafeColors.Blue, RoundedCornerShape(24.dp)),
+                Modifier.padding(horizontal = 18.dp).weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(2.dp, RondaSafeColors.Blue, RoundedCornerShape(24.dp)),
             ) {
                 QrCameraScanner(
                     modifier = Modifier.fillMaxSize(),
-                    enabled = !processing && !occurrenceOpen,
+                    enabled = !processing && !occurrenceOpen && !finishing,
                     onQr = { qr ->
                         val now = SystemClock.elapsedRealtime()
                         val repeatedTooSoon = qr == lastQr && now - lastQrAt < 15_000L
@@ -577,14 +575,17 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                             lastQrAt = now
                             processing = true
                             scope.launch {
+                                error = null
                                 runCatching { PortariaRepository.scan(run.runId, qr, now) }
                                     .onSuccess {
                                         visited = it.visitedPoints
-                                        message = when (it.scanResult) {
-                                            "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado"
-                                            "DUPLICATE" -> "Este ponto já foi lido"
-                                            "REVOKED_QR" -> "QR Code revogado"
-                                            "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
+                                        message = when {
+                                            !it.synced && it.scanResult == "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} salvo no aparelho • aguardando sincronização"
+                                            !it.synced && it.scanResult == "DUPLICATE" -> "Ponto já registrado neste aparelho • sincronização pendente"
+                                            it.scanResult == "ACCEPTED" -> "${it.checkpointName ?: "Ponto"} confirmado pelo servidor"
+                                            it.scanResult == "DUPLICATE" -> "Este ponto já foi lido"
+                                            it.scanResult == "REVOKED_QR" -> "QR Code revogado"
+                                            it.scanResult == "NOT_IN_ROUND" -> "Este ponto não pertence à ronda"
                                             else -> "QR Code não reconhecido"
                                         }
                                     }
@@ -600,16 +601,25 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
             OfflineSyncStatusBanner(Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
             OutlinedButton(
                 onClick = { occurrenceOpen = true },
-                enabled = !processing,
+                enabled = !processing && !finishing,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp).fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(16.dp),
             ) { Text("Registrar ocorrência", fontWeight = FontWeight.Bold) }
             Button(
-                onClick = { scope.launch { runCatching { PortariaRepository.finishPatrol(run.runId) }.onSuccess(onFinished).onFailure { error = it.message } } },
-                enabled = !processing && !occurrenceSaving,
+                onClick = {
+                    scope.launch {
+                        finishing = true
+                        error = null
+                        runCatching { PortariaRepository.finishPatrol(run.runId) }
+                            .onSuccess(onFinished)
+                            .onFailure { error = it.message }
+                        finishing = false
+                    }
+                },
+                enabled = !processing && !occurrenceSaving && !finishing,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("Finalizar ronda", fontWeight = FontWeight.Bold) }
+            ) { Text(if (finishing) "Confirmando finalização..." else "Finalizar ronda", fontWeight = FontWeight.Bold) }
         }
     }
 }
@@ -627,9 +637,7 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
         return
     }
 
-    val scanner = remember {
-        BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
-    }
+    val scanner = remember { BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()) }
     val executor = remember { Executors.newSingleThreadExecutor() }
     DisposableEffect(Unit) { onDispose { scanner.close(); executor.shutdown() } }
 
@@ -660,21 +668,53 @@ private fun QrCameraScanner(modifier: Modifier, enabled: Boolean, onQr: (String)
 
 @Composable
 fun PatrolFinishedScreen(result: FinishPatrolDto, onDone: () -> Unit) {
+    val confirmed = result.synced
+    val completed = result.status == "COMPLETED"
+    val accent = when {
+        !confirmed -> Color(0xFFB66A00)
+        completed -> RondaSafeColors.Green
+        else -> RondaSafeColors.Danger
+    }
+    val background = when {
+        !confirmed -> Color(0xFFFFF4DF)
+        completed -> RondaSafeColors.GreenSoft
+        else -> Color(0xFFFFECEC)
+    }
+
     Column(
         Modifier.fillMaxSize().background(RondaSafeColors.Background).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         OfflineSyncStatusBanner()
         Spacer(Modifier.weight(1f))
-        Surface(modifier = Modifier.size(82.dp), shape = CircleShape, color = if (result.status == "COMPLETED") RondaSafeColors.GreenSoft else Color(0xFFFFECEC)) {
+        Surface(modifier = Modifier.size(82.dp), shape = CircleShape, color = background) {
             Box(contentAlignment = Alignment.Center) {
-                Text(if (result.status == "COMPLETED") "✓" else "!", style = MaterialTheme.typography.headlineLarge, color = if (result.status == "COMPLETED") RondaSafeColors.Green else RondaSafeColors.Danger)
+                Text(if (!confirmed) "↻" else if (completed) "✓" else "!", style = MaterialTheme.typography.headlineLarge, color = accent)
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text(if (result.status == "COMPLETED") "Ronda concluída" else "Ronda incompleta", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = RondaSafeColors.Navy)
+        Text(
+            when {
+                !confirmed -> "Ronda salva no aparelho"
+                completed -> "Ronda concluída"
+                else -> "Ronda incompleta"
+            },
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = RondaSafeColors.Navy,
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(8.dp))
-        Text("${result.visitedPoints}/${result.totalPoints} pontos visitados", color = RondaSafeColors.Muted)
+        Text("${result.visitedPoints}/${result.totalPoints} pontos registrados", color = RondaSafeColors.Muted)
+        if (!confirmed) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Aguardando sincronização. A ronda só será considerada concluída no sistema depois da confirmação do servidor.",
+                modifier = Modifier.fillMaxWidth(),
+                color = accent,
+                textAlign = TextAlign.Center,
+            )
+        }
         Spacer(Modifier.height(26.dp))
         Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Concluir", fontWeight = FontWeight.Bold) }
         Spacer(Modifier.weight(1f))

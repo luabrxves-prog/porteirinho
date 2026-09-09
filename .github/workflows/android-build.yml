@@ -1,43 +1,86 @@
 name: Android Build
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v4
+      - name: Export exact source for audit
+        run: git archive --format=zip HEAD -o source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-source
+          path: source.zip
+          retention-days: 7
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Verify preinstalled Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -1 "$ANDROID_HOME/platforms"
-          ls -1 "$ANDROID_HOME/build-tools"
-
-      - name: Setup Gradle 9.6
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
-
-      - name: Upload debug APK
+      - name: Unit tests and Android packages
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleE2e --stacktrace
+      - uses: actions/upload-artifact@v4
         if: success()
-        uses: actions/upload-artifact@v4
         with:
-          name: rondasafe-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: android-packages
+          path: app/build/outputs/apk/**/*.apk
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: app/build/test-results/
+  android-regression:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-packages
+          path: apk
+      - name: Boot independent Android clients
+        timeout-minutes: 8
+        run: bash scripts/qa/boot-android.sh
+      - name: Run device UI regression tests
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          adb -s emulator-5554 install -r apk/debug/app-debug.apk
+          if [ -f apk/androidTest/debug/app-debug-androidTest.apk ]; then
+            adb -s emulator-5554 install -r apk/androidTest/debug/app-debug-androidTest.apk
+            adb -s emulator-5554 shell am instrument -w com.rondasafe.app.test/androidx.test.runner.AndroidJUnitRunner | tee instrumentation.txt
+            grep -Eq 'OK \([1-9][0-9]* tests?\)' instrumentation.txt
+            ! grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|shortMsg=' instrumentation.txt
+          else
+            echo 'No instrumented tests packaged'; exit 1
+          fi
+      - name: Collect emulator evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          cp /tmp/emulator*.log evidence/ 2>/dev/null || true
+          cp instrumentation.txt evidence/ 2>/dev/null || true
+          for serial in emulator-5554 emulator-5556; do
+            timeout 10 adb -s "$serial" logcat -d -b crash > "evidence/${serial}-crash.txt" || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-evidence
+          path: evidence/
+          retention-days: 7

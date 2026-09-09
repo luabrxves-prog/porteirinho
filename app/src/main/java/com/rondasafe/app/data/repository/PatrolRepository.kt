@@ -2,6 +2,7 @@ package com.rondasafe.app.data.repository
 
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.remote.SupabaseProvider
+import com.rondasafe.app.data.sync.SyncLogger
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -52,16 +53,27 @@ object PatrolRepository {
         require(startTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário inicial inválido." }
         require(endTime.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) { "Horário final inválido." }
 
-        client.from("patrol_schedule_windows").update(
-            UpdatePatrolScheduleWindowTimeDto(
-                startTime = "$startTime:00",
-                endTime = "$endTime:00",
-            )
-        ) {
-            filter {
-                eq("patrol_template_id", templateId)
-                eq("active", true)
+        val windows = listWindows(templateId).filter { it.active }
+        require(windows.isNotEmpty()) { "A ronda não possui horários ativos." }
+        val expectedVersions = buildJsonObject {
+            windows.forEach { put(it.id, it.version) }
+        }
+        val params = buildJsonObject {
+            put("p_template_id", templateId)
+            put("p_start_time", "$startTime:00")
+            put("p_end_time", "$endTime:00")
+            put("p_expected_versions", expectedVersions)
+        }
+
+        try {
+            client.postgrest.rpc("admin_update_fixed_patrol_times", params)
+            SyncLogger.event("REMOTE_SAVE", "patrol_time template=${templateId.take(8)}")
+        } catch (error: Exception) {
+            if (error.message.orEmpty().contains("CONFLICT_VERSION_MISMATCH")) {
+                SyncLogger.event("CONFLICT", "patrol_schedule template=${templateId.take(8)}")
+                error("Os horários foram alterados em outro aparelho. Recarregue a ronda e tente novamente.")
             }
+            throw error
         }
     }
 
@@ -118,9 +130,7 @@ object PatrolRepository {
     }
 
     suspend fun setAssignmentsForWindows(windowIds: Collection<String>, guardIds: Set<String>) {
-        windowIds.distinct().forEach { windowId ->
-            setAssignments(windowId, guardIds)
-        }
+        windowIds.distinct().forEach { windowId -> setAssignments(windowId, guardIds) }
     }
 
     suspend fun listCheckpointOptions(buildingId: String): List<PatrolCheckpointOption> {
@@ -183,7 +193,9 @@ object PatrolRepository {
             })
             put("p_checkpoint_ids", buildJsonArray { effectiveCheckpointIds.forEach { add(JsonPrimitive(it)) } })
         }
-        return client.postgrest.rpc("save_patrol_template", params).decodeAs<String>()
+        val id = client.postgrest.rpc("save_patrol_template", params).decodeAs<String>()
+        SyncLogger.event("REMOTE_SAVE", "patrol_template id=${id.take(8)}")
+        return id
     }
 
     suspend fun createTemplate(
@@ -203,11 +215,13 @@ object PatrolRepository {
         client.from("patrol_templates").update(
             ArchiveDto(active = false, archivedAt = Instant.now().toString(), archivedBy = adminId)
         ) { filter { eq("id", templateId) } }
+        SyncLogger.event("REMOTE_SAVE", "patrol_template archived=${templateId.take(8)}")
     }
 
     suspend fun restoreTemplate(templateId: String) {
         client.from("patrol_templates").update(RestoreDto(active = true)) {
             filter { eq("id", templateId) }
         }
+        SyncLogger.event("REMOTE_SAVE", "patrol_template restored=${templateId.take(8)}")
     }
 }

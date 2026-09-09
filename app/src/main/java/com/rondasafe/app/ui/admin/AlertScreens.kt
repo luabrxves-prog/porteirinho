@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -41,7 +41,7 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
 
     Scaffold(
         containerColor = RondaSafeColors.Background,
-        topBar = { PremiumTopBar("Alertas", onBack) },
+        topBar = { PremiumTopBar("Atenção", onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
@@ -75,14 +75,14 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
             if (!loading && alerts.isEmpty()) {
                 item {
                     EmptyStateCard(
-                        if (showResolved) "Nenhum alerta resolvido" else "Tudo em ordem",
-                        if (showResolved) "Os alertas concluídos aparecerão aqui." else "Nenhum alerta ativo neste momento.",
-                        Icons.Rounded.NotificationsActive,
+                        if (showResolved) "Nenhuma situação resolvida" else "Tudo em ordem",
+                        if (showResolved) "As situações concluídas aparecerão aqui." else "Nada precisa de atenção neste momento.",
+                        Icons.Rounded.WarningAmber,
                     )
                 }
             }
             items(alerts, key = { it.id }) { alert ->
-                AlertCard(
+                AttentionCard(
                     alert = alert,
                     showResolved = showResolved,
                     onOpen = {
@@ -107,7 +107,7 @@ fun AlertsScreen(onBack: () -> Unit, onOpenHistory: () -> Unit) {
 }
 
 @Composable
-private fun AlertCard(
+private fun AttentionCard(
     alert: AlertDto,
     showResolved: Boolean,
     onOpen: () -> Unit,

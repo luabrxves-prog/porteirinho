@@ -8,6 +8,7 @@ data class BuildingDto(
     val id: String,
     val name: String,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable
@@ -17,6 +18,7 @@ data class BlockDto(
     val name: String,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable
@@ -26,6 +28,7 @@ data class FloorDto(
     val name: String,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable
@@ -36,6 +39,7 @@ data class CheckpointDto(
     val description: String? = null,
     @SerialName("sort_order") val sortOrder: Int = 0,
     val active: Boolean,
+    val version: Long = 1,
 )
 
 @Serializable

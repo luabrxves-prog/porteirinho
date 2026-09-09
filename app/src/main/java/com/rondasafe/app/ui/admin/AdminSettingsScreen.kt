@@ -3,7 +3,7 @@ package com.rondasafe.app.ui.admin
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AssignmentInd
+import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -30,22 +30,22 @@ fun AdminSettingsScreen(
         ) {
             item {
                 SectionHeading(
-                    "Ajustes da operação",
-                    "Somente configurações que podem ser necessárias no dia a dia.",
+                    "Ajustes",
+                    "Itens arquivados e aparelho da portaria.",
                 )
             }
             item {
                 PremiumMenuRow(
-                    "Responsáveis pelas rondas",
-                    "Opcional — escolha quem pode realizar cada ronda",
-                    Icons.Rounded.AssignmentInd,
-                    onOpenAssignments,
+                    "Itens arquivados",
+                    "Consulte e restaure cadastros arquivados anteriormente",
+                    Icons.Rounded.Archive,
+                    onOpenArchived,
                 )
             }
             item {
                 PremiumMenuRow(
                     "Aparelho da portaria",
-                    "Use apenas para configurar ou trocar o celular da portaria",
+                    "Configure ou troque o celular usado na portaria",
                     Icons.Rounded.PhoneAndroid,
                     onOpenDevice,
                 )
