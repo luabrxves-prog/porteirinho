@@ -5,13 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.rondasafe.app.ui.RondaSafeApp
 import com.rondasafe.app.ui.theme.RondaSafeTheme
-import java.util.TimeZone
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))
+        // Keep Android as the source of truth for timezone. Do not force a global
+        // process timezone here, otherwise event timestamps may be displayed or
+        // interpreted with a zone different from the device configuration.
+        OperationalDataReset.runIfNeeded(this)
 
         setContent {
             RondaSafeTheme {
