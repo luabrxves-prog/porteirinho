@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.LiveData
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -48,16 +49,22 @@ class CameraRegressionTest {
             MaterialTheme { SafeQrCamera(Modifier.fillMaxWidth().height(260.dp), enabled) {} }
         }
         lateinit var preview: PreviewView
-        ui.waitUntil(20_000) { root?.let(::findPreview) != null }
-        ui.runOnIdle { preview = findPreview(root!!)!! }
-        ui.waitUntil(30_000) { preview.previewStreamState.value == PreviewView.StreamState.STREAMING }
-        assertEquals(PreviewView.ImplementationMode.COMPATIBLE, preview.implementationMode)
+        lateinit var stream: LiveData<PreviewView.StreamState>
+        ui.waitUntil(20_000) { root != null }
+        // PreviewView getters and Android view traversal have main-thread contracts.
+        // Keep every original assertion; only the test's inspection thread changes.
+        ui.runOnIdle {
+            preview = findPreview(root!!)!!
+            stream = preview.previewStreamState
+            assertEquals(PreviewView.ImplementationMode.COMPATIBLE, preview.implementationMode)
+        }
+        ui.waitUntil(30_000) { stream.value == PreviewView.StreamState.STREAMING }
         ui.onNodeWithTag("qr_preview").assertHeightIsEqualTo(260.dp).assertIsDisplayed()
         ui.runOnIdle { enabled = false }
         ui.waitForIdle()
         ui.runOnIdle { assertSame(preview, findPreview(root!!)); enabled = true }
         ui.waitForIdle()
-        ui.waitUntil(10_000) { preview.previewStreamState.value == PreviewView.StreamState.STREAMING }
+        ui.waitUntil(10_000) { stream.value == PreviewView.StreamState.STREAMING }
         val image = ui.onRoot().captureToImage().asAndroidBitmap()
         val out = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir,"camera-preview.png")
         out.outputStream().use { image.compress(Bitmap.CompressFormat.PNG,100,it) }
