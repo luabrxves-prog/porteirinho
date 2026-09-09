@@ -13,8 +13,8 @@ android {
         applicationId = "com.rondasafe.app"
         minSdk = 23
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.6.4"
+        versionCode = 13
+        versionName = "0.7.0"
 
         // Identificadores publicos do cliente Supabase. Podem ser sobrescritos por
         // propriedades Gradle locais/CI. Nunca colocar secret/service_role aqui.
@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.11.0")
 
     implementation(platform("androidx.compose:compose-bom:2026.08.00"))
     implementation("androidx.compose.ui:ui")
@@ -70,6 +71,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
     implementation("io.github.jan-tennert.supabase:functions-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.ktor:ktor-client-android:3.5.2")
 
     implementation("io.coil-kt.coil3:coil-compose:3.6.2")
