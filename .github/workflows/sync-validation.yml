@@ -81,6 +81,7 @@ jobs:
           mkdir -p evidence
           for serial in emulator-5554 emulator-5556; do
             timeout 10 adb -s "$serial" logcat -d -b crash > "evidence/${serial}-crash.txt" || true
+            timeout 10 adb -s "$serial" logcat -d -s RondaSafeSync:I RondaSafeRealtimeTest:I '*:S' > "evidence/${serial}-sync.txt" || true
           done
           cp /tmp/emulator*.log evidence/ 2>/dev/null || true
           git rev-parse HEAD > evidence/commit.txt
