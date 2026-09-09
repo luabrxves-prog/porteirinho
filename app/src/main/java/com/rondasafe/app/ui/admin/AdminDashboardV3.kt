@@ -31,7 +31,7 @@ private data class DashboardMetrics(
 ) {
     val planned: Int get() = FIXED_PATROLS_PER_DAY
     val completed: Int get() = today
-        .filter { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
+        .filter { it.displayStatus == "COMPLETED" }
         .map { it.patrolTemplateId }
         .distinct()
         .size
