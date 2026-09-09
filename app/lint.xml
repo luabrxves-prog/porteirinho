@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- ML Kit receives the CameraX image. Analyzers retain ownership through
+         ImageProxy and close that proxy after task completion, never Image directly.
+         Accept this one experimental CameraX API; all lint error checks stay enabled. -->
+    <issue id="UnsafeOptInUsageError">
+        <option name="opt-in" value="androidx.camera.core.ExperimentalGetImage" />
+    </issue>
+</lint>
