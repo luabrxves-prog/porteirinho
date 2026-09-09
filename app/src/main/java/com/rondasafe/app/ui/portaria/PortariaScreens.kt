@@ -517,7 +517,14 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
     var occurrenceOpen by remember { mutableStateOf(false) }
     var occurrenceText by remember { mutableStateOf("") }
     var occurrenceSaving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(run.runId) {
+        visited = OfflineDatabase.get(context).offlineDao().localVisitCount(run.runId)
+    }
+
     val progress = if (run.requiredPoints <= 0) 0f else visited.toFloat() / run.requiredPoints.toFloat()
+    val missingPoints = (run.requiredPoints - visited).coerceAtLeast(0)
+    val canFinish = run.requiredPoints > 0 && missingPoints == 0 && !processing && !occurrenceSaving
 
     if (occurrenceOpen) {
         AlertDialog(
@@ -618,11 +625,24 @@ fun PatrolScannerScreen(run: PatrolRunDto, patrolName: String, onFinished: (Fini
                 shape = RoundedCornerShape(16.dp),
             ) { Text("Registrar ocorrência", fontWeight = FontWeight.Bold) }
             Button(
-                onClick = { scope.launch { runCatching { PortariaRepository.finishPatrol(run.runId) }.onSuccess(onFinished).onFailure { error = it.message } } },
-                enabled = !processing && !occurrenceSaving,
+                onClick = {
+                    if (canFinish) {
+                        scope.launch {
+                            runCatching { PortariaRepository.finishPatrol(run.runId) }
+                                .onSuccess(onFinished)
+                                .onFailure { error = it.message }
+                        }
+                    }
+                },
+                enabled = canFinish,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("Finalizar ronda", fontWeight = FontWeight.Bold) }
+            ) {
+                Text(
+                    if (missingPoints == 0) "Finalizar ronda" else "Faltam $missingPoints ponto(s)",
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
