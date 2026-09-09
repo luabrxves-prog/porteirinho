@@ -10,6 +10,7 @@ import com.rondasafe.app.data.local.OfflineSyncWorker
 import com.rondasafe.app.data.local.PendingEventEntity
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.remote.SupabaseProvider
+import com.rondasafe.app.data.sync.SyncLogger
 import com.rondasafe.app.security.OfflineCredentialVault
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
@@ -81,6 +82,7 @@ object PortariaRepository {
         val device = payload.device ?: error("Dispositivo não retornado.")
         val secret = payload.deviceSecret ?: error("Segredo do dispositivo não retornado.")
         deviceCredential = DeviceCredential(device.deviceId, secret)
+        SyncLogger.event("REMOTE_SAVE", "device_provisioned id=${device.deviceId.take(8)}")
         return payload
     }
 
@@ -98,6 +100,7 @@ object PortariaRepository {
         )
         val cache = response.body<PortariaCacheResponse>()
         OfflineOperationalCache.save(context, cache)
+        SyncLogger.event("SYNC_SUCCESS", "operational_cache generated=${cache.generatedAt.take(19)}")
         return cache
     }
 
@@ -108,6 +111,7 @@ object PortariaRepository {
             runCatching { syncOperationalCache() }
             online
         } catch (error: IOException) {
+            SyncLogger.error("SYNC_ERROR", error)
             if (context != null) OfflineOperationalCache.guards(context).takeIf { it.isNotEmpty() } ?: throw error
             else throw error
         }
@@ -151,8 +155,20 @@ object PortariaRepository {
     }
 
     suspend fun changePin(newPin: String) {
-        invoke<SimplePortariaResponse>(PortariaRequest(action = "change_pin", newPin = newPin))
-        runCatching { syncOperationalCache() }
+        require(newPin.matches(Regex("^\\d{6}$"))) { "O novo PIN deve conter exatamente 6 dígitos." }
+        val context = requireContext()
+        val response = invoke<SimplePortariaResponse>(PortariaRequest(action = "change_pin", newPin = newPin))
+        check(response.ok) { response.error ?: "O servidor não confirmou a alteração do PIN." }
+        SyncLogger.event("REMOTE_SAVE", "guard_pin_changed")
+        try {
+            syncOperationalCache()
+        } catch (error: Exception) {
+            // Nunca permita autenticação offline usando um hash antigo depois que o
+            // servidor já confirmou o PIN novo.
+            OfflineOperationalCache.clear(context)
+            SyncLogger.error("SYNC_ERROR", error)
+            error("PIN salvo no servidor, mas o cache deste aparelho não foi atualizado. Conecte-se à internet e tente novamente.")
+        }
     }
 
     suspend fun startShift(): ShiftDto {
@@ -163,43 +179,74 @@ object PortariaRepository {
 
         val eventId = UUID.randomUUID().toString()
         val startedAt = Instant.now().toString()
+        val payload = buildJsonObject {
+            put("guard_id", guard.guardId)
+            put("started_at_local", startedAt)
+        }.toString()
         dao.saveLocalShift(LocalShiftEntity(eventId, guard.guardId, guard.guardName, startedAt, true))
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = eventId,
-                type = "SHIFT_STARTED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("started_at_local", startedAt)
-                }.toString(),
-                createdAtLocal = startedAt,
-                monotonicMs = null,
-            )
-        )
+        dao.enqueue(PendingEventEntity(eventId, "SHIFT_STARTED", payload, startedAt, null))
+        SyncLogger.event("LOCAL_SAVE", "SHIFT_STARTED id=${eventId.take(8)}")
+
+        if (!guard.offline) {
+            try {
+                val remote = invoke<ShiftResponse>(
+                    PortariaRequest(
+                        action = "start_shift",
+                        startedAtLocal = startedAt,
+                        clientEventId = eventId,
+                    )
+                ).shift ?: error("O servidor não confirmou o início do turno.")
+                dao.markShiftSynced(eventId, remote.shiftId)
+                dao.markSynced(eventId, Instant.now().toString())
+                SyncLogger.event("REMOTE_SAVE", "SHIFT_STARTED id=${eventId.take(8)}")
+                return ShiftDto(eventId, remote.startedAtServer, synced = true)
+            } catch (error: IOException) {
+                SyncLogger.error("SYNC_ERROR", error)
+            } catch (error: Exception) {
+                dao.finishLocalShift(eventId)
+                dao.markPermanentFailure(eventId, error.message)
+                throw error
+            }
+        }
+
         OfflineSyncWorker.schedule(context)
-        return ShiftDto(shiftId = eventId, startedAtServer = startedAt)
+        SyncLogger.event("SYNC_PENDING", "SHIFT_STARTED id=${eventId.take(8)}")
+        return ShiftDto(eventId, startedAt, synced = false)
     }
 
     suspend fun availablePatrols(): List<AvailablePatrolDto> {
         val context = appContext
         val guard = guardSession ?: error("Porteiro não autenticado.")
+        if (context == null) return emptyList()
+        val dao = OfflineDatabase.get(context).offlineDao()
+        val localShift = dao.activeLocalShift()
 
-        if (!guard.offline) {
+        val base: List<AvailablePatrolDto> = if (!guard.offline && localShift?.serverShiftId != null) {
             try {
-                return invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
+                invoke<AvailablePatrolsResponse>(PortariaRequest(action = "available_patrols")).patrols
             } catch (error: IOException) {
-                if (context == null || !OfflineOperationalCache.hasCache(context)) throw error
+                if (!OfflineOperationalCache.hasCache(context)) throw error
+                OfflineOperationalCache.availablePatrols(context, guard.guardId)
             }
+        } else {
+            if (!OfflineOperationalCache.hasCache(context)) emptyList()
+            else OfflineOperationalCache.availablePatrols(context, guard.guardId)
         }
 
-        if (context == null || !OfflineOperationalCache.hasCache(context)) return emptyList()
-        val dao = OfflineDatabase.get(context).offlineDao()
-        return OfflineOperationalCache.availablePatrols(context, guard.guardId).map { patrol ->
+        return base.map { patrol ->
             val local = dao.localOccurrence(patrol.scheduleWindowId, patrol.scheduledFor)
             when {
                 local == null -> patrol
                 local.active -> patrol.copy(
                     executionStatus = "IN_PROGRESS",
+                    executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
+                )
+                local.syncState != PendingEventEntity.STATE_SYNCED -> patrol.copy(
+                    executionStatus = "IN_PROGRESS",
+                    executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
+                )
+                local.finalStatus != null -> patrol.copy(
+                    executionStatus = local.finalStatus,
                     executedByGuardName = local.guardId.takeIf { it == guard.guardId }?.let { guard.guardName },
                 )
                 local.requiredPoints > 0 && local.visitedPoints >= local.requiredPoints -> patrol.copy(
@@ -219,11 +266,16 @@ object PortariaRepository {
         val context = requireContext()
         val guard = guardSession ?: error("Porteiro não autenticado.")
         val dao = OfflineDatabase.get(context).offlineDao()
-        val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
+        var shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
         if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido para este porteiro.")
         dao.activeLocalRun()?.let { error("Já existe uma ronda em andamento.") }
         dao.localOccurrence(patrol.scheduleWindowId, patrol.scheduledFor)?.let {
             error("Esta ronda já foi iniciada ou finalizada neste horário.")
+        }
+
+        if (!guard.offline && shift.serverShiftId == null) {
+            OfflineSyncWorker.syncPending(context)
+            shift = dao.localShift(shiftId) ?: shift
         }
 
         val eventId = UUID.randomUUID().toString()
@@ -242,92 +294,145 @@ object PortariaRepository {
             startedAtLocal = startedAt,
             active = true,
         )
+        val payload = buildJsonObject {
+            put("guard_id", guard.guardId)
+            put("shift_client_event_id", shiftId)
+            put("patrol_template_id", patrol.patrolTemplateId)
+            put("schedule_window_id", patrol.scheduleWindowId)
+            put("scheduled_for", patrol.scheduledFor)
+            put("started_at_local", startedAt)
+            put("is_late", patrol.isLate)
+        }.toString()
         dao.saveLocalRun(run)
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = eventId,
-                type = "PATROL_STARTED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("shift_client_event_id", shiftId)
-                    put("patrol_template_id", patrol.patrolTemplateId)
-                    put("schedule_window_id", patrol.scheduleWindowId)
-                    put("scheduled_for", patrol.scheduledFor)
-                    put("started_at_local", startedAt)
-                    put("is_late", patrol.isLate)
-                }.toString(),
-                createdAtLocal = startedAt,
-                monotonicMs = null,
-            )
-        )
+        dao.enqueue(PendingEventEntity(eventId, "PATROL_STARTED", payload, startedAt, null))
+        SyncLogger.event("LOCAL_SAVE", "PATROL_STARTED id=${eventId.take(8)}")
+
+        val serverShiftId = shift.serverShiftId
+        if (!guard.offline && serverShiftId != null) {
+            try {
+                val remote = invoke<PatrolRunResponse>(
+                    PortariaRequest(
+                        action = "start_patrol",
+                        shiftId = serverShiftId,
+                        patrolTemplateId = patrol.patrolTemplateId,
+                        scheduleWindowId = patrol.scheduleWindowId,
+                        scheduledFor = patrol.scheduledFor,
+                        isLate = patrol.isLate,
+                        startedAtLocal = startedAt,
+                        clientEventId = eventId,
+                    )
+                ).run ?: error("O servidor não confirmou o início da ronda.")
+                dao.markRunStartedSynced(eventId, remote.runId)
+                dao.markSynced(eventId, Instant.now().toString())
+                SyncLogger.event("REMOTE_SAVE", "PATROL_STARTED id=${eventId.take(8)}")
+                return PatrolRunDto(eventId, remote.requiredPoints, remote.startedAtServer, synced = true)
+            } catch (error: IOException) {
+                SyncLogger.error("SYNC_ERROR", error)
+            } catch (error: Exception) {
+                dao.finishLocalRun(eventId)
+                dao.markPermanentFailure(eventId, error.message)
+                throw error
+            }
+        }
+
         OfflineSyncWorker.schedule(context)
-        return PatrolRunDto(runId = eventId, requiredPoints = patrol.requiredPoints, startedAtServer = startedAt)
+        SyncLogger.event("SYNC_PENDING", "PATROL_STARTED id=${eventId.take(8)}")
+        return PatrolRunDto(eventId, patrol.requiredPoints, startedAt, synced = false)
     }
 
     suspend fun scan(runId: String, qr: String, monotonicMs: Long): ScanDto {
         val context = requireContext()
         val guard = guardSession ?: error("Porteiro não autenticado.")
         val dao = OfflineDatabase.get(context).offlineDao()
-        val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
+        var run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
         if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
+        if (!guard.offline && run.serverRunId == null) {
+            OfflineSyncWorker.syncPending(context)
+            run = dao.localRun(runId) ?: run
+        }
 
         val capturedAt = Instant.now().toString()
         val tokenHash = OfflineOperationalCache.tokenHash(qr)
+        val scanEventId = UUID.randomUUID().toString()
+        val payload = buildJsonObject {
+            put("guard_id", guard.guardId)
+            put("run_client_event_id", runId)
+            put("token_hash", tokenHash)
+            put("captured_at_local", capturedAt)
+            put("captured_monotonic_ms", monotonicMs)
+        }.toString()
+        dao.enqueue(PendingEventEntity(scanEventId, "QR_SCANNED", payload, capturedAt, monotonicMs))
+        SyncLogger.event("LOCAL_SAVE", "QR_SCANNED id=${scanEventId.take(8)}")
+
+        val serverRunId = run.serverRunId
+        if (!guard.offline && serverRunId != null) {
+            try {
+                val remote = invoke<ScanResponse>(
+                    PortariaRequest(
+                        action = "scan",
+                        runId = serverRunId,
+                        qr = qr,
+                        capturedAtLocal = capturedAt,
+                        capturedMonotonicMs = monotonicMs,
+                        clientEventId = scanEventId,
+                    )
+                ).scan ?: error("O servidor não confirmou a leitura do QR Code.")
+
+                if (remote.checkpointId != null && remote.scanResult in setOf("ACCEPTED", "DUPLICATE")) {
+                    dao.addLocalVisit(
+                        LocalVisitedCheckpointEntity(
+                            runClientEventId = runId,
+                            checkpointId = remote.checkpointId,
+                            checkpointName = remote.checkpointName ?: "Ponto",
+                            scannedAtLocal = capturedAt,
+                        )
+                    )
+                }
+                dao.updateLocalVisited(runId, remote.visitedPoints)
+                dao.markSynced(scanEventId, Instant.now().toString())
+                SyncLogger.event("REMOTE_SAVE", "QR_SCANNED result=${remote.scanResult}")
+                return remote.copy(synced = true)
+            } catch (error: IOException) {
+                SyncLogger.error("SYNC_ERROR", error)
+            } catch (error: Exception) {
+                dao.markPermanentFailure(scanEventId, error.message)
+                throw error
+            }
+        }
+
         val match = OfflineOperationalCache.qrMatch(context, qr)
         val required = OfflineOperationalCache.requiredCheckpointIds(context, run.patrolTemplateId)
         val before = dao.localVisitCount(runId)
-
-        val result: String
-        val checkpointId: String? = match?.checkpointId
-        val checkpointName: String? = match?.checkpointName
-
+        val localResult: String
+        val checkpointId = match?.checkpointId
+        val checkpointName = match?.checkpointName
         if (match == null) {
-            result = "UNKNOWN_QR"
+            localResult = "UNKNOWN_QR"
         } else if (match.checkpointId !in required) {
-            result = "NOT_IN_ROUND"
+            localResult = "NOT_IN_ROUND"
         } else {
             val inserted = dao.addLocalVisit(
                 LocalVisitedCheckpointEntity(runId, match.checkpointId, match.checkpointName, capturedAt)
             )
-            result = if (inserted == -1L) "DUPLICATE" else "ACCEPTED"
+            localResult = if (inserted == -1L) "DUPLICATE" else "ACCEPTED"
         }
-
         val visited = dao.localVisitCount(runId)
         if (visited != before) dao.updateLocalVisited(runId, visited)
-
-        val scanEventId = UUID.randomUUID().toString()
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = scanEventId,
-                type = "QR_SCANNED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("run_client_event_id", runId)
-                    put("token_hash", tokenHash)
-                    put("captured_at_local", capturedAt)
-                    put("captured_monotonic_ms", monotonicMs)
-                }.toString(),
-                createdAtLocal = capturedAt,
-                monotonicMs = monotonicMs,
-            )
-        )
         OfflineSyncWorker.schedule(context)
-
-        return ScanDto(
-            scanResult = result,
-            checkpointId = checkpointId,
-            visitedPoints = visited,
-            totalPoints = run.requiredPoints,
-            checkpointName = checkpointName,
-        )
+        SyncLogger.event("SYNC_PENDING", "QR_SCANNED id=${scanEventId.take(8)}")
+        return ScanDto(localResult, checkpointId, visited, run.requiredPoints, checkpointName, synced = false)
     }
 
     suspend fun finishPatrol(runId: String): FinishPatrolDto {
         val context = requireContext()
         val guard = guardSession ?: error("Porteiro não autenticado.")
         val dao = OfflineDatabase.get(context).offlineDao()
-        val run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
+        var run = dao.localRun(runId) ?: error("Ronda local não encontrada.")
         if (!run.active || run.guardId != guard.guardId) error("Ronda não está em andamento.")
+        if (!guard.offline && run.serverRunId == null) {
+            OfflineSyncWorker.syncPending(context)
+            run = dao.localRun(runId) ?: run
+        }
 
         val finishedAt = Instant.now().toString()
         val visitedIds = dao.localVisitedCheckpointIds(runId).toSet()
@@ -335,33 +440,49 @@ object PortariaRepository {
         val missing = (requiredIds - visitedIds).toList()
         val visited = visitedIds.count { it in requiredIds }
         val total = requiredIds.size
-        val status = if (total > 0 && missing.isEmpty()) "COMPLETED" else "INCOMPLETE"
-
+        val localStatus = if (total > 0 && missing.isEmpty()) "COMPLETED" else "INCOMPLETE"
         val finishEventId = UUID.randomUUID().toString()
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = finishEventId,
-                type = "PATROL_FINISHED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("run_client_event_id", runId)
-                    put("finished_at_local", finishedAt)
-                }.toString(),
-                createdAtLocal = finishedAt,
-                monotonicMs = null,
-            )
-        )
+        val payload = buildJsonObject {
+            put("guard_id", guard.guardId)
+            put("run_client_event_id", runId)
+            put("finished_at_local", finishedAt)
+        }.toString()
+        dao.enqueue(PendingEventEntity(finishEventId, "PATROL_FINISHED", payload, finishedAt, null))
+        SyncLogger.event("LOCAL_SAVE", "PATROL_FINISHED id=${finishEventId.take(8)}")
+
+        val serverRunId = run.serverRunId
+        if (!guard.offline && serverRunId != null) {
+            try {
+                val remote = invoke<FinishPatrolResponse>(
+                    PortariaRequest(
+                        action = "finish_patrol",
+                        runId = serverRunId,
+                        finishedAtLocal = finishedAt,
+                        clientEventId = finishEventId,
+                    )
+                ).result ?: error("O servidor não confirmou a finalização da ronda.")
+                dao.markRunFinishedSynced(runId, remote.status)
+                dao.finishLocalShift(run.shiftClientEventId)
+                dao.markSynced(finishEventId, Instant.now().toString())
+                guardSession = null
+                SyncLogger.event("REMOTE_SAVE", "PATROL_FINISHED status=${remote.status}")
+                return remote.copy(synced = true)
+            } catch (error: IOException) {
+                SyncLogger.error("SYNC_ERROR", error)
+            } catch (error: Exception) {
+                dao.markPermanentFailure(finishEventId, error.message)
+                throw error
+            }
+        }
+
+        // Offline: encerra apenas a execução local. A tela não pode chamar isso de
+        // conclusão confirmada; o servidor continuará sendo a fonte oficial.
         dao.finishLocalRun(runId)
         dao.finishLocalShift(run.shiftClientEventId)
         guardSession = null
         OfflineSyncWorker.schedule(context)
-
-        return FinishPatrolDto(
-            status = status,
-            visitedPoints = visited,
-            totalPoints = total,
-            missingCheckpointIds = missing,
-        )
+        SyncLogger.event("SYNC_PENDING", "PATROL_FINISHED id=${finishEventId.take(8)}")
+        return FinishPatrolDto(localStatus, visited, total, missing, synced = false)
     }
 
     suspend fun endShift(shiftId: String) {
@@ -369,27 +490,46 @@ object PortariaRepository {
         val guard = guardSession ?: error("Porteiro não autenticado.")
         val dao = OfflineDatabase.get(context).offlineDao()
         dao.activeLocalRun()?.let { error("Finalize a ronda em andamento antes de encerrar o turno.") }
-        val shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
+        var shift = dao.activeLocalShift() ?: error("Turno local não encontrado.")
         if (shift.shiftClientEventId != shiftId || shift.guardId != guard.guardId) error("Turno inválido.")
+        if (!guard.offline && shift.serverShiftId == null) {
+            OfflineSyncWorker.syncPending(context)
+            shift = dao.localShift(shiftId) ?: shift
+        }
 
         val endedAt = Instant.now().toString()
         val eventId = UUID.randomUUID().toString()
-        dao.enqueue(
-            PendingEventEntity(
-                clientEventId = eventId,
-                type = "SHIFT_ENDED",
-                payloadJson = buildJsonObject {
-                    put("guard_id", guard.guardId)
-                    put("shift_client_event_id", shiftId)
-                    put("ended_at_local", endedAt)
-                }.toString(),
-                createdAtLocal = endedAt,
-                monotonicMs = null,
-            )
-        )
+        val payload = buildJsonObject {
+            put("guard_id", guard.guardId)
+            put("shift_client_event_id", shiftId)
+            put("ended_at_local", endedAt)
+        }.toString()
+        dao.enqueue(PendingEventEntity(eventId, "SHIFT_ENDED", payload, endedAt, null))
+
+        val serverShiftId = shift.serverShiftId
+        if (!guard.offline && serverShiftId != null) {
+            try {
+                val response = invoke<SimplePortariaResponse>(
+                    PortariaRequest(action = "end_shift", shiftId = serverShiftId, endedAtLocal = endedAt)
+                )
+                check(response.ok) { response.error ?: "O servidor não confirmou o encerramento do turno." }
+                dao.finishLocalShift(shiftId)
+                dao.markSynced(eventId, Instant.now().toString())
+                guardSession = null
+                SyncLogger.event("REMOTE_SAVE", "SHIFT_ENDED id=${eventId.take(8)}")
+                return
+            } catch (error: IOException) {
+                SyncLogger.error("SYNC_ERROR", error)
+            } catch (error: Exception) {
+                dao.markPermanentFailure(eventId, error.message)
+                throw error
+            }
+        }
+
         dao.finishLocalShift(shiftId)
         guardSession = null
         OfflineSyncWorker.schedule(context)
+        SyncLogger.event("SYNC_PENDING", "SHIFT_ENDED id=${eventId.take(8)}")
     }
 
     suspend fun pendingOfflineEvents(): Int =
