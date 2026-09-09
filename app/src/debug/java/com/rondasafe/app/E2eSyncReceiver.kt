@@ -6,11 +6,15 @@ import android.content.Intent
 import android.util.Log
 import com.rondasafe.app.data.local.OfflineOperationalCache
 import com.rondasafe.app.data.local.OfflineSyncWorker
+import com.rondasafe.app.data.remote.SupabaseProvider
 import com.rondasafe.app.data.repository.PortariaRepository
 import com.rondasafe.app.security.OfflineCredentialVault
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class E2eSyncReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -51,6 +55,18 @@ class E2eSyncReceiver : BroadcastReceiver() {
                         val result = OfflineSyncWorker.syncPending(appContext)
                         Log.i(TAG, "E2E_OK FORCE_SYNC result=$result")
                     }
+                    ACTION_SERVER_MUTATION -> {
+                        val runId = requireNotNull(intent.getStringExtra("run_id"))
+                        val action = requireNotNull(intent.getStringExtra("server_action"))
+                        SupabaseProvider.client.postgrest.rpc(
+                            "e2e_test_control",
+                            buildJsonObject {
+                                put("p_action", action)
+                                put("p_run_id", runId)
+                            },
+                        )
+                        Log.i(TAG, "E2E_OK SERVER_MUTATION $action")
+                    }
                     else -> Log.e(TAG, "E2E_FAIL UNKNOWN_ACTION ${intent.action}")
                 }
             } catch (error: Throwable) {
@@ -69,5 +85,6 @@ class E2eSyncReceiver : BroadcastReceiver() {
         const val ACTION_CHANGE_PIN = "com.rondasafe.app.e2e.CHANGE_PIN"
         const val ACTION_START_SHIFT = "com.rondasafe.app.e2e.START_SHIFT"
         const val ACTION_FORCE_SYNC = "com.rondasafe.app.e2e.FORCE_SYNC"
+        const val ACTION_SERVER_MUTATION = "com.rondasafe.app.e2e.SERVER_MUTATION"
     }
 }
