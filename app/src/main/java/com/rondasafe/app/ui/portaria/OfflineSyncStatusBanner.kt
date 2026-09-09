@@ -16,7 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.rondasafe.app.data.local.OfflineSyncStatus
 import com.rondasafe.app.data.local.OfflineSyncStatusRepository
-import com.rondasafe.app.data.repository.PortariaRepository
+import com.rondasafe.app.data.local.OfflineSyncWorker
 
 @Composable
 fun OfflineSyncStatusBanner(modifier: Modifier = Modifier) {
@@ -53,7 +53,7 @@ fun OfflineSyncStatusBanner(modifier: Modifier = Modifier) {
             }
 
             OutlinedButton(
-                onClick = { PortariaRepository.scheduleOfflineSync(force = true) },
+                onClick = { OfflineSyncWorker.schedule(context, force = true) },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             ) {
                 Text("Sincronizar agora")
