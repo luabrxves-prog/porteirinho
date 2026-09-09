@@ -29,7 +29,6 @@ import com.rondasafe.app.ui.admin.CreatePatrolTemplateScreen
 import com.rondasafe.app.ui.admin.DeviceProvisionScreen
 import com.rondasafe.app.ui.admin.GuardsScreen
 import com.rondasafe.app.ui.admin.OfflineSyncAdminScreen
-import com.rondasafe.app.ui.admin.PatrolAssignmentsScreen
 import com.rondasafe.app.ui.admin.PatrolHistoryScreen
 import com.rondasafe.app.ui.admin.PatrolTemplatesScreen
 import com.rondasafe.app.ui.admin.PremiumAdminLoginScreen
@@ -62,7 +61,6 @@ enum class AppScreen {
     ALERTS,
     PATROL_HISTORY,
     REPORTS,
-    PATROL_ASSIGNMENTS,
     OFFLINE_SYNC,
     ARCHIVED,
     LOCATIONS,
@@ -138,7 +136,6 @@ fun RondaSafeApp() {
             AppScreen.PATROLS,
             -> screen = AppScreen.ADMIN_DASHBOARD
 
-            AppScreen.PATROL_ASSIGNMENTS,
             AppScreen.OFFLINE_SYNC,
             AppScreen.ARCHIVED,
             AppScreen.DEVICE_PROVISION,
@@ -210,7 +207,6 @@ fun RondaSafeApp() {
 
         AppScreen.ADMIN_SETTINGS -> AdminSettingsScreen(
             onBack = { screen = AppScreen.ADMIN_DASHBOARD },
-            onOpenAssignments = { screen = AppScreen.PATROL_ASSIGNMENTS },
             onOpenDevice = { screen = AppScreen.DEVICE_PROVISION },
             onOpenArchived = { screen = AppScreen.ARCHIVED },
             onOpenSync = { screen = AppScreen.OFFLINE_SYNC },
@@ -222,7 +218,6 @@ fun RondaSafeApp() {
         )
         AppScreen.PATROL_HISTORY -> PatrolHistoryScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
         AppScreen.REPORTS -> ReportScreen(onBack = { screen = AppScreen.ADMIN_DASHBOARD })
-        AppScreen.PATROL_ASSIGNMENTS -> PatrolAssignmentsScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
         AppScreen.OFFLINE_SYNC -> OfflineSyncAdminScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
         AppScreen.ARCHIVED -> ArchivedScreen(onBack = { screen = AppScreen.ADMIN_SETTINGS })
 
