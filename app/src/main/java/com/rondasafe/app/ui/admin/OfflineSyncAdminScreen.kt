@@ -31,6 +31,7 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
     val dao = remember { OfflineDatabase.get(context).offlineDao() }
     var failures by remember { mutableStateOf<List<PendingEventEntity>>(emptyList()) }
     var pending by remember { mutableIntStateOf(0) }
+    var resolved by remember { mutableStateOf<List<PendingEventEntity>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -38,6 +39,7 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
         scope.launch {
             loading = true
             failures = dao.permanentFailures()
+            resolved = dao.supersededConflicts()
             pending = dao.pendingCount()
             loading = false
         }
@@ -124,6 +126,16 @@ fun OfflineSyncAdminScreen(onBack: () -> Unit) {
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Reenfileirar este registro") }
+                    }
+                }
+            }
+            if (resolved.isNotEmpty()) item { SectionHeading("Conflitos antigos resolvidos", "Tentativas sem ronda vinculada, substituídas por um turno confirmado. Os registros foram preservados.") }
+            items(resolved, key = { "resolved:${it.clientEventId}" }) { event ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Tentativa anterior de início de turno", fontWeight = FontWeight.Bold)
+                        Text(AppTime.dateTime(event.createdAtLocal))
+                        Text(event.lastError.orEmpty(), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

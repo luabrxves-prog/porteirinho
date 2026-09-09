@@ -4,6 +4,9 @@ fun userFriendlyError(error: Throwable, fallback: String = "Não foi possível c
     val raw = error.message.orEmpty()
     val text = raw.lowercase()
     return when {
+        "guard_already_has_active_shift" in text -> "Este porteiro já tem um turno aberto. Continue a ronda no aparelho em que ela foi iniciada."
+        "device_already_has_active_shift" in text -> "Este aparelho já tem um turno aberto. Continue ou encerre esse turno antes de iniciar outro."
+        "admin_required" in text -> "A sessão atual não foi reconhecida como administrativa. Entre novamente como administrador."
         "permission denied" in text || "42501" in text -> "Você não tem permissão para realizar esta ação. Entre novamente como administrador."
         "jwt" in text || "session" in text || "401" in text -> "Sua sessão expirou. Entre novamente para continuar."
         "network" in text || "unable to resolve host" in text || "timeout" in text || "failed to connect" in text -> "Sem conexão com a internet. Verifique a rede e tente novamente."

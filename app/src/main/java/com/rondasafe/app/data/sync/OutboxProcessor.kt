@@ -40,6 +40,7 @@ class OutboxProcessor(
     suspend fun drain(maxEvents: Int = 250): Boolean = execution.withLock {
         var delivered = 0
         while (delivered < maxEvents) {
+            ObsoleteShiftConflictReconciler.reconcile(db)
             val batch = dao.pending()
             if (batch.isEmpty()) return@withLock true
             var madeProgress = false

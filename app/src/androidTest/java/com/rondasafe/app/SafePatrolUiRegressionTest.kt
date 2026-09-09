@@ -33,11 +33,12 @@ class SafePatrolUiRegressionTest {
         var occurrenceFailure = false
         var acknowledged = false
         var startCalls = 0
+        var scanCalls = 0
         var finishCalls = 0
         var occurrenceCalls = 0
         override suspend fun available() = available
         override suspend fun start(shiftId: String, patrol: AvailablePatrolDto): PatrolRunDto { startCalls++; startGate?.await(); return run }
-        override suspend fun scan(runId: String, qr: String, monotonicMs: Long): ScanDto { scanGate?.await(); return ScanDto("ACCEPTED", "point", 1, 1, "Ponto", acknowledged) }
+        override suspend fun scan(runId: String, qr: String, monotonicMs: Long): ScanDto { scanCalls++; scanGate?.await(); return ScanDto("ACCEPTED", "point", 1, 1, "Ponto", acknowledged) }
         override suspend fun finish(runId: String): FinishPatrolDto { finishCalls++; return FinishPatrolDto("COMPLETED", 1, 1, synced = acknowledged) }
         override suspend fun report(runId: String, description: String): Boolean { occurrenceCalls++; if (occurrenceFailure) throw IOException("network"); return acknowledged }
         override suspend fun endShift(shiftId: String) { }
@@ -127,4 +128,16 @@ class SafePatrolUiRegressionTest {
         ui.onNodeWithText("Finalização não confirmada").assertExists()
         ui.onNodeWithText("Ronda concluída").assertDoesNotExist()
     }
+    @Test fun sameQrIsNotResubmittedOnEveryFrameAfterSuccessfulSync() {
+        val source = Source().apply { acknowledged = true }
+        ui.setContent { MaterialTheme { SafePatrolScannerScreen(run, "Ronda", {}, source, camera) } }
+        ui.onNodeWithTag("test_camera").performClick()
+        ui.waitUntil(5_000) { source.scanCalls == 1 }
+        ui.waitForIdle()
+        ui.onNodeWithTag("test_camera").performClick()
+        ui.waitForIdle()
+        assertEquals(1, source.scanCalls)
+        ui.onNodeWithTag("camera_viewport").assertIsDisplayed()
+    }
+
 }

@@ -23,6 +23,7 @@ data class PendingEventEntity(
         const val STATE_PENDING = "PENDING"
         const val STATE_SYNCED = "SYNCED"
         const val STATE_FAILED_PERMANENT = "FAILED_PERMANENT"
+        const val STATE_SUPERSEDED = "SUPERSEDED"
     }
 }
 
@@ -61,7 +62,7 @@ interface OfflineDao {
     suspend fun enqueue(event: PendingEventEntity)
     @Query("select * from pending_events where state = 'PENDING' order by rowid limit :limit")
     suspend fun pending(limit: Int = 100): List<PendingEventEntity>
-    @Query("select * from pending_events where state <> 'SYNCED' order by rowid")
+    @Query("select * from pending_events where state in ('PENDING','FAILED_PERMANENT') order by rowid")
     suspend fun unsettled(): List<PendingEventEntity>
     @Query("select * from pending_events where clientEventId = :id limit 1")
     suspend fun event(id: String): PendingEventEntity?
@@ -93,6 +94,16 @@ interface OfflineDao {
         or lastError like '%started_at_server%ambiguous%'
         or lastError like 'Registro antigo incompatível com a configuração atual do aparelho%')""")
     suspend fun recoverLegacyCompatibilityFailures()
+    @Query("select * from local_shifts where serverShiftId is not null")
+    suspend fun confirmedShifts(): List<LocalShiftEntity>
+    @Query("select count(*) from local_patrol_runs where shiftClientEventId=:id")
+    suspend fun runsForShiftCount(id: String): Int
+    @Query("select * from pending_events where state='SUPERSEDED' order by rowid desc limit 100")
+    suspend fun supersededConflicts(): List<PendingEventEntity>
+    @Query("""update pending_events set state='SUPERSEDED',receiptJson=:resolution
+        where clientEventId=:id and type='SHIFT_STARTED' and state='FAILED_PERMANENT'
+        and lastError in ('GUARD_ALREADY_HAS_ACTIVE_SHIFT','DEVICE_ALREADY_HAS_ACTIVE_SHIFT')""")
+    suspend fun markShiftConflictSuperseded(id: String, resolution: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveLocalShift(shift: LocalShiftEntity)
     @Query("select * from local_shifts where active=1 limit 1")
