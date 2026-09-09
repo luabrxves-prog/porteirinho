@@ -22,17 +22,26 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 private val dashboardZone = ZoneId.of("America/Sao_Paulo")
+private const val FIXED_PATROLS_PER_DAY = 3
 
 private data class DashboardMetrics(
     val condominium: String = "Condomínio",
     val today: List<PatrolHistoryItemDto> = emptyList(),
     val openAlerts: Int = 0,
 ) {
-    val total: Int get() = today.size
-    val completed: Int get() = today.count { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
-    val attention: Int get() = today.count {
+    val planned: Int get() = FIXED_PATROLS_PER_DAY
+    val completed: Int get() = today
+        .filter { it.displayStatus == "COMPLETED" && !it.isLate && !it.suspicious && it.missingPoints == 0 }
+        .map { it.patrolTemplateId }
+        .distinct()
+        .size
+        .coerceAtMost(FIXED_PATROLS_PER_DAY)
+
+    private val patrolAttention: Int get() = today.count {
         it.displayStatus in setOf("MISSED", "INCOMPLETE", "LATE") || it.isLate || it.suspicious || it.missingPoints > 0
     }
+
+    val attention: Int get() = maxOf(patrolAttention, openAlerts)
 }
 
 @Composable
@@ -92,17 +101,12 @@ fun AdminDashboardScreenV3(
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
 
             item {
-                val needsAttention = metrics.attention > 0 || metrics.openAlerts > 0
-                val title = when {
-                    needsAttention -> "Há algo para conferir"
-                    metrics.total == 0 -> "Sem rondas previstas hoje"
-                    else -> "Tudo em ordem"
-                }
-                val subtitle = when {
-                    metrics.attention > 0 -> "${metrics.attention} ronda(s) precisam da sua atenção."
-                    metrics.openAlerts > 0 -> "${metrics.openAlerts} alerta(s) pendente(s)."
-                    metrics.total == 0 -> "Nenhuma ronda está prevista para hoje."
-                    else -> "As rondas de hoje estão sem pendências."
+                val needsAttention = metrics.attention > 0
+                val title = if (needsAttention) "Há algo para conferir" else "Tudo em ordem"
+                val subtitle = if (needsAttention) {
+                    "${metrics.attention} situação(ões) precisam da sua atenção."
+                } else {
+                    "As 3 rondas previstas para hoje estão sem pendências."
                 }
                 val background = if (needsAttention) Color(0xFFFFF4DF) else RondaSafeColors.GreenSoft
                 val foreground = if (needsAttention) Color(0xFFB66A00) else RondaSafeColors.Green
@@ -117,27 +121,24 @@ fun AdminDashboardScreenV3(
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.total.toString(), "Previstas", Icons.Rounded.Schedule, Modifier.weight(1f))
+                    PremiumMetricCard(metrics.planned.toString(), "Previstas", Icons.Rounded.Schedule, Modifier.weight(1f))
                     PremiumMetricCard(metrics.completed.toString(), "Concluídas", Icons.Rounded.CheckCircle, Modifier.weight(1f))
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PremiumMetricCard(metrics.attention.toString(), "Atenção", Icons.Rounded.WarningAmber, Modifier.weight(1f))
-                    PremiumMetricCard(metrics.openAlerts.toString(), "Alertas", Icons.Rounded.NotificationsActive, Modifier.weight(1f))
-                }
+                PremiumMetricCard(metrics.attention.toString(), "Atenção", Icons.Rounded.WarningAmber, Modifier.fillMaxWidth())
             }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Acompanhar") }
             item { PremiumMenuRow("Rondas de hoje e histórico", "Veja o que foi feito e o que ficou pendente", Icons.Rounded.History, onOpenHistory) }
-            item { PremiumMenuRow("Alertas", "Situações que precisam de atenção", Icons.Rounded.NotificationsActive, onOpenAlerts) }
+            item { PremiumMenuRow("Atenção", "Situações que precisam ser conferidas", Icons.Rounded.WarningAmber, onOpenAlerts) }
 
             item { Spacer(Modifier.height(4.dp)); SectionHeading("Gerenciar") }
-            item { PremiumMenuRow("Horários das rondas", "Altere somente início e fim das rondas fixas", Icons.Rounded.Schedule, onOpenPatrols) }
+            item { PremiumMenuRow("Horários das rondas", "Altere somente início e fim das 3 rondas fixas", Icons.Rounded.Schedule, onOpenPatrols) }
             item { PremiumMenuRow("Porteiros", "Equipe, foto e PIN de acesso", Icons.Rounded.Badge, onOpenGuards) }
-            item { PremiumMenuRow("Locais e QR Codes", "Andares, pontos e impressão dos QR Codes", Icons.Rounded.Place, onOpenLocations) }
+            item { PremiumMenuRow("Locais e QR Codes", "Andares fixos, pontos obrigatórios e QR Codes", Icons.Rounded.Place, onOpenLocations) }
             item { PremiumMenuRow("Relatórios", "Exporte informações quando precisar", Icons.Rounded.TableView, onOpenReports) }
-            item { PremiumMenuRow("Ajustes", "Responsáveis e aparelho da portaria", Icons.Rounded.Settings, onOpenSettings) }
+            item { PremiumMenuRow("Ajustes", "Itens arquivados e aparelho da portaria", Icons.Rounded.Settings, onOpenSettings) }
 
             item {
                 Spacer(Modifier.height(4.dp))
