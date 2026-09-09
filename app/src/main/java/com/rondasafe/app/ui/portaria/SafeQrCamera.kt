@@ -55,8 +55,8 @@ fun SafeQrCamera(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit) {
     if (!permission) {
         Box(modifier, contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Permita o uso da c\u00e2mera para ler os QR Codes.", color = Color.White)
-                TextButton(onClick = { launcher.launch(Manifest.permission.CAMERA) }) { Text("Permitir c\u00e2mera") }
+                Text("Permita o uso da câmera para ler os QR Codes.", color = Color.White)
+                TextButton(onClick = { launcher.launch(Manifest.permission.CAMERA) }) { Text("Permitir câmera") }
             }
         }
         return
@@ -75,7 +75,7 @@ fun SafeQrCamera(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit) {
             Surface(Modifier.align(Alignment.Center)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(message)
-                    TextButton(onClick = { error = null; attempt++ }) { Text("Tentar c\u00e2mera novamente") }
+                    TextButton(onClick = { error = null; attempt++ }) { Text("Tentar câmera novamente") }
                 }
             }
         }
@@ -87,7 +87,7 @@ fun SafeQrCamera(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit) {
         val scanner = createQrBarcodeScanner()
         val executor = Executors.newSingleThreadExecutor()
         val main = ContextCompat.getMainExecutor(context)
-        val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+        val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
         var provider: ProcessCameraProvider? = null
         val future = ProcessCameraProvider.getInstance(context)
@@ -111,14 +111,14 @@ fun SafeQrCamera(modifier: Modifier, enabled: Boolean, onQr: (String) -> Unit) {
                                     }
                                 }
                                 .addOnFailureListener(main) {
-                                    if (!disposed.get()) error = "N\u00e3o foi poss\u00edvel analisar a imagem. Tente a c\u00e2mera novamente."
+                                    if (!disposed.get()) error = "Não foi possível analisar a imagem. Tente a câmera novamente."
                                 }
                                 .addOnCompleteListener { proxy.close(); inFlight.set(false) }
                         } catch (_: Exception) { proxy.close(); inFlight.set(false) }
                     }
                     cameraProvider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
                 } catch (_: Exception) {
-                    if (!disposed.get()) error = "N\u00e3o foi poss\u00edvel abrir a c\u00e2mera. Verifique a permiss\u00e3o e tente novamente."
+                    if (!disposed.get()) error = "Não foi possível abrir a câmera. Verifique a permissão e tente novamente."
                 }
             }
         }, main)
