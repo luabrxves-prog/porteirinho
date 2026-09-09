@@ -1,7 +1,9 @@
 package com.rondasafe.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.rondasafe.app.data.model.*
 import com.rondasafe.app.data.repository.AuthRepository
@@ -73,21 +75,26 @@ fun RondaSafeApp() {
         }
     }
 
-    // ArchivedScreen owns its refresh stream. Never destroy it on Realtime updates:
-    // an acknowledgement can arrive while its destructive action/dialog is still open.
+    // Command screens own their state and refresh streams. An incoming server update
+    // must not cancel the command which caused it or erase a confirmation dialog.
     val refreshEpoch = when (screen) {
         AppScreen.ENTRY, AppScreen.ADMIN_DASHBOARD, AppScreen.ADMIN_SETTINGS,
         AppScreen.ALERTS, AppScreen.PATROL_HISTORY, AppScreen.REPORTS,
         AppScreen.LOCATIONS, AppScreen.CHECKPOINTS, AppScreen.CHECKPOINT_DETAIL,
-        AppScreen.GUARDS, AppScreen.PATROLS, AppScreen.AVAILABLE_PATROLS, AppScreen.GUARD_SELECTION -> syncEpoch
+        AppScreen.GUARDS, AppScreen.PATROLS, AppScreen.GUARD_SELECTION -> syncEpoch
         else -> 0L
     }
     key(refreshEpoch) {
         when (screen) {
-            AppScreen.ENTRY -> PremiumGuardLandingScreen(
-                enabled = deviceCredentialLoaded && PortariaRepository.deviceCredential != null,
-                onGuardSelected = { selectedGuard = it; screen = AppScreen.GUARD_PIN }, onAdmin = ::openAdmin,
-            )
+            AppScreen.ENTRY -> Column(Modifier.fillMaxSize()) {
+                OfflineSyncStatusBanner()
+                Box(Modifier.weight(1f)) {
+                    PremiumGuardLandingScreen(
+                        enabled = deviceCredentialLoaded && PortariaRepository.deviceCredential != null,
+                        onGuardSelected = { selectedGuard = it; screen = AppScreen.GUARD_PIN }, onAdmin = ::openAdmin,
+                    )
+                }
+            }
             AppScreen.ADMIN_LOGIN -> PremiumAdminLoginScreen(
                 onLoginSuccess = { screen = AppScreen.ADMIN_DASHBOARD }, onBack = { screen = AppScreen.ENTRY },
             )
@@ -150,7 +157,7 @@ fun RondaSafeApp() {
             AppScreen.AVAILABLE_PATROLS -> {
                 val currentShift = shift
                 if (currentShift == null) { LaunchedEffect(Unit) { returnToGuardLanding() } }
-                else AvailablePatrolsScreen(shift = currentShift,
+                else SafeAvailablePatrolsScreen(shift = currentShift,
                     onStart = { patrol, patrolRun -> activePatrol = patrol; run = patrolRun; screen = AppScreen.PATROL_SCANNER },
                     onEndShift = ::returnToGuardLanding)
             }
@@ -158,12 +165,12 @@ fun RondaSafeApp() {
                 val currentRun = run
                 val patrol = activePatrol
                 if (currentRun == null || patrol == null) { LaunchedEffect(Unit) { returnToGuardLanding() } }
-                else PatrolScannerScreen(run = currentRun, patrolName = patrol.patrolName, onFinished = { finishResult = it; screen = AppScreen.PATROL_FINISHED })
+                else SafePatrolScannerScreen(run = currentRun, patrolName = patrol.patrolName, onFinished = { finishResult = it; screen = AppScreen.PATROL_FINISHED })
             }
             AppScreen.PATROL_FINISHED -> {
                 val result = finishResult
                 if (result == null) { LaunchedEffect(Unit) { returnToGuardLanding() } }
-                else PatrolFinishedScreen(result = result, onDone = ::returnToGuardLanding)
+                else SafePatrolFinishedScreen(result = result, onDone = ::returnToGuardLanding, runClientEventId = run?.runId)
             }
         }
     }
